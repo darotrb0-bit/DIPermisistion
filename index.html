@@ -13,6 +13,13 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Kantumruy+Pro:wght@400;600;700&display=swap" rel="stylesheet">
     
+    <!-- 
+      ===== Import face-api.js =====
+      'defer' ensures this script runs AFTER the HTML is parsed
+      but BEFORE DOMContentLoaded.
+    -->
+    <script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
+    
     <style>
         /* Apply the font to the whole application */
         body {
@@ -49,11 +56,18 @@
         <div class="w-full bg-white p-6 rounded-lg shadow-md border border-gray-200">
             <!-- Dropdown -->
             <label for="user-select" class="block text-sm font-medium text-gray-700 mb-2">ជ្រើសរើសអត្តលេខ (ID)</label>
-            <!-- Changed from <select> to <input> with <datalist> for search/typing -->
-            <input id="user-select" list="user-datalist" placeholder="វាយ ឬ ជ្រើសរើស..." class="w-full p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 bg-white">
-            <datalist id="user-datalist">
-                <!-- Options populated by JS -->
-            </datalist>
+            
+            <!-- Wrapper for input and custom dropdown -->
+            <div class="relative">
+                <!-- Removed list="user-datalist" and added autocomplete="off" -->
+                <input id="user-select" autocomplete="off" placeholder="វាយ ឬ ជ្រើសរើស..." class="w-full p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 bg-white">
+                
+                <!-- Custom dropdown container -->
+                <div id="user-dropdown" class="hidden absolute w-full bg-white border border-gray-300 rounded-b-lg max-h-60 overflow-y-auto z-20 shadow-lg" style="top: 100%;">
+                    <!-- Dropdown items will be populated by JS -->
+                </div>
+            </div>
+            
             <p id="user-select-error" class="text-red-500 text-sm mt-1 hidden">សូមជ្រើសរើសឈ្មោះរបស់អ្នក</p>
 
             <!-- Face Scan Button -->
@@ -63,6 +77,7 @@
                 </svg>
                 <span>ចូលដោយស្កេនផ្ទៃមុខ</span>
             </button>
+            <p id="model-status" class="text-xs text-gray-500 text-center mt-2"></p>
         </div>
     </div>
 
@@ -73,7 +88,8 @@
             <div class="relative w-full h-48 bg-gray-900 rounded-lg overflow-hidden mb-4">
                 <video id="camera-feed" class="w-full h-full object-cover" autoplay playsinline muted></video>
                 <!-- "Scanning" overlay animation -->
-                <div class="absolute inset-0 border-4 border-blue-500 rounded-lg animate-pulse"></div>
+                <div class-></div>
+                <div id="scan-overlay" class="absolute inset-0 border-4 border-blue-500 rounded-lg animate-pulse"></div>
             </div>
             <p id="scan-status" class="text-gray-600">សូមដាក់មុខឲ្យចំកាមេរ៉ា...</p>
             <button id="cancel-scan" class="mt-4 text-sm text-gray-500 hover:underline">បោះបង់</button>
@@ -148,7 +164,7 @@
                                 <p class="font-semibold text-gray-800">ច្បាប់ចេញក្រៅ</p>
                                 <span class="text-xs font-medium bg-yellow-100 text-yellow-800 px-2 py-0.5 rounded-full">រង់ចាំ...</span>
                             </div>
-                            <p class="text-sm text-gray-500">ថ្ងៃទី ២៥ តុលា ២០២៥ (២ ម៉ោង)</p>
+                            <p class="text-sm text-gray-500">ថ្ងៃទី ២៦ តុលា ២០២៥ (២ ម៉ោង)</p>
                         </div>
                         <div class="bg-white border border-gray-200 p-4 rounded-lg shadow-sm">
                             <div class="flex justify-between items-center">
@@ -317,19 +333,23 @@
         let allUsersData = []; // To store { id, name, photo, gender, group, department }
         let currentUser = null;
         let cameraStream = null;
+        let modelsLoaded = false;
+        let faceScanInterval = null;
 
         // --- Element Caching ---
         const pageLogin = document.getElementById('page-login');
         const mainAppContainer = document.getElementById('main-app-container');
         const userSelect = document.getElementById('user-select'); // This is the <input> now
-        const userDatalist = document.getElementById('user-datalist');
+        const userDropdown = document.getElementById('user-dropdown'); // NEW custom dropdown
         const userSelectError = document.getElementById('user-select-error');
         const faceScanLoginBtn = document.getElementById('face-scan-login');
+        const modelStatus = document.getElementById('model-status');
         
         const scanModal = document.getElementById('scan-modal');
         const cameraFeed = document.getElementById('camera-feed');
         const scanStatus = document.getElementById('scan-status');
         const cancelScanBtn = document.getElementById('cancel-scan');
+        const scanOverlay = document.getElementById('scan-overlay');
         
         const logoutButton = document.getElementById('logout-button');
 
@@ -337,8 +357,9 @@
         const SHEET_ID = '1_Kgl8UQXRsVATt_BOHYQjVWYKkRIBA12R-qnsBoSUzc';
         const SHEET_NAME = 'បញ្ជឺឈ្មោះរួម';
         // Query: Select E (ID), L (Name), AA (Photo), N (Gender), G (Group), S (Department)
-        // Start from row 9 (OFFSET 8)
-        const GVIZ_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?sheet=${encodeURIComponent(SHEET_NAME)}&tq=${encodeURIComponent('SELECT E, L, AA, N, G, S WHERE E IS NOT NULL OFFSET 8')}`;
+        // Start from row 9. OFFSET 0 means don't skip any *data* rows.
+        // The query "WHERE E IS NOT NULL" already handles skipping the headers (rows 1-8).
+        const GVIZ_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?sheet=${encodeURIComponent(SHEET_NAME)}&tq=${encodeURIComponent('SELECT E, L, AA, N, G, S WHERE E IS NOT NULL OFFSET 0')}`;
 
         async function fetchUsers() {
             try {
@@ -364,7 +385,8 @@
                         department: row.c[5] ? row.c[5].v : null,
                     })).filter(user => user.id && user.name); // Filter out empty rows
                     
-                    populateUserDropdown();
+                    // Don't populate dropdown on load, wait for focus
+                    userSelect.placeholder = "វាយ ឬ ជ្រើសរើស...";
                 } else {
                      throw new Error('No data table found in response');
                 }
@@ -375,24 +397,75 @@
             }
         }
 
-        function populateUserDropdown() {
-            userDatalist.innerHTML = ''; // Clear "Loading" or old data
+        // This function now filters AND shows/hides the custom dropdown
+        function populateUserDropdown(filter = '') {
+            userDropdown.innerHTML = ''; // Clear old items
+            
+            const lowerFilter = filter.toLowerCase();
+            let hasMatches = false;
+
             allUsersData.forEach(user => {
-                const option = document.createElement('option');
-                // The *value* of the option is what will be put in the input box.
-                // This format allows us to parse the ID back out.
-                option.value = `${user.id} - ${user.name}`;
-                userDatalist.appendChild(option);
+                const itemText = `${user.id} - ${user.name}`;
+                // Filter logic
+                if (itemText.toLowerCase().includes(lowerFilter)) {
+                    hasMatches = true;
+                    // Create a div for each item
+                    const itemDiv = document.createElement('div');
+                    itemDiv.textContent = itemText;
+                    itemDiv.className = 'p-3 hover:bg-gray-100 cursor-pointer border-b border-gray-100 last:border-b-0';
+                    
+                    // Add click event to select item
+                    itemDiv.addEventListener('click', () => {
+                        userSelect.value = itemText; // Set input value
+                        userDropdown.classList.add('hidden'); // Hide dropdown
+                    });
+                    
+                    userDropdown.appendChild(itemDiv);
+                }
             });
+
+            // Show or hide dropdown based on matches
+            if (hasMatches) {
+                userDropdown.classList.remove('hidden');
+            } else {
+                userDropdown.classList.add('hidden');
+            }
         }
+
+        // --- NEW Event Listeners for custom dropdown ---
+
+        // Show and populate on focus
+        userSelect.addEventListener('focus', () => {
+            populateUserDropdown(userSelect.value); // Show all or filtered
+        });
+
+        // Filter on typing
+        userSelect.addEventListener('input', () => {
+            populateUserDropdown(userSelect.value);
+            userSelectError.classList.add('hidden'); // Hide error while typing
+        });
+
+        // Hide on click outside
+        window.addEventListener('click', (e) => {
+            // Hide if click is not on the input and not inside the dropdown
+            if (e.target !== userSelect && !userDropdown.contains(e.target)) {
+                userDropdown.classList.add('hidden');
+            }
+        });
+
 
         // --- Login Logic ---
         faceScanLoginBtn.addEventListener('click', startLoginProcess);
         
         async function startLoginProcess() {
+            // 1. Check if models are loaded
+            if (!modelsLoaded) {
+                modelStatus.textContent = 'សូមរង់ចាំ Model កំពុងទាញយក...';
+                return;
+            }
+
+            // 2. Validate user selection
             const selectedValue = userSelect.value; // Get value from <input>
-            
-            // Parse the ID from the string "ID - Name"
             const selectedUserId = selectedValue.split(' - ')[0];
             
             if (!selectedUserId) {
@@ -401,26 +474,36 @@
             }
             userSelectError.classList.add('hidden');
             
-            // Find the user data
             currentUser = allUsersData.find(user => user.id == selectedUserId);
             if (!currentUser) {
                 userSelectError.textContent = 'រកមិនឃើញទិន្នន័យអ្នកប្រើប្រាស់';
                 userSelectError.classList.remove('hidden');
                 return;
             }
+            
+            // 3. Check for reference photo
+            if (!currentUser.photo) {
+                userSelectError.textContent = 'អ្នកប្រើប្រាស់នេះ មិនមានរូបថតយោងទេ';
+                userSelectError.classList.remove('hidden');
+                return;
+            }
 
-            // Show scanning modal and start camera
+            // 4. Show modal and start camera
             scanModal.classList.remove('hidden');
             scanStatus.textContent = 'កំពុងចាប់ផ្តើមកាមេរ៉ា...';
+            scanOverlay.className = 'absolute inset-0 border-4 border-blue-500 rounded-lg animate-pulse';
             
             try {
                 if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
                     cameraStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
                     cameraFeed.srcObject = cameraStream;
-                    scanStatus.textContent = 'សូមដាក់មុខឲ្យចំកាមេរ៉ា... (កំពុងស្គែន...)';
-
-                    // Simulate scan time (2.5 seconds)
-                    setTimeout(completeLogin, 2500);
+                    
+                    // Wait for camera to be ready
+                    cameraFeed.onloadedmetadata = () => {
+                        scanStatus.textContent = 'សូមដាក់មុខឲ្យចំ...';
+                        // Start the actual face recognition
+                        startFaceRecognition();
+                    }
                 } else {
                     throw new Error('Camera API not supported');
                 }
@@ -429,17 +512,82 @@
                 scanStatus.textContent = 'មិនអាចបើកកាមេរ៉ាបាន!';
                 // Hide modal after 2 seconds on error
                 setTimeout(() => {
-                    scanModal.classList.add('hidden');
+                    cancelScan(); // Use cancel function to clean up
                 }, 2000);
             }
         }
 
-        function completeLogin() {
-            // Stop camera
-            if (cameraStream) {
-                cameraStream.getTracks().forEach(track => track.stop());
-                cameraStream = null;
+        // ===== NEW: Face Recognition Logic =====
+
+        async function startFaceRecognition() {
+            let referenceDescriptor;
+
+            // 1. Load reference image and create descriptor
+            try {
+                scanStatus.textContent = 'កំពុងវិភាគរូបថតយោង...';
+                // Use faceapi.fetchImage to handle potential CORS issues
+                const referenceImage = await faceapi.fetchImage(currentUser.photo);
+                referenceDescriptor = await faceapi.detectSingleFace(referenceImage, new faceapi.TinyFaceDetectorOptions())
+                    .withFaceLandmarks(true)
+                    .withFaceDescriptor();
+                
+                if (!referenceDescriptor) {
+                    throw new Error('No face found in reference photo.');
+                }
+            } catch (err) {
+                console.error('Error loading reference image:', err);
+                scanStatus.textContent = 'Error: មិនអាចផ្ទុក/វិភាគរូបថតយោងបាន។';
+                scanOverlay.className = 'absolute inset-0 border-4 border-red-500 rounded-lg';
+                setTimeout(cancelScan, 3000);
+                return;
             }
+            
+            // 2. Create Face Matcher
+            const faceMatcher = new faceapi.FaceMatcher(referenceDescriptor, 0.5); // 0.5 = 50% distance threshold
+            scanStatus.textContent = 'សូមដាក់មុខឲ្យចំ...';
+
+            // 3. Start recognition interval
+            faceScanInterval = setInterval(async () => {
+                if (!cameraStream) return; // Stop if camera was cancelled
+                
+                try {
+                    const detections = await faceapi.detectAllFaces(cameraFeed, new faceapi.TinyFaceDetectorOptions())
+                        .withFaceLandmarks(true)
+                        .withFaceDescriptors();
+
+                    if (detections.length > 0) {
+                        // Find the best match from the detected faces
+                        const bestMatch = faceMatcher.findBestMatch(detections[0].descriptor);
+                        
+                        if (bestMatch.label === 'person 1' && bestMatch.distance < 0.5) {
+                            // MATCH FOUND!
+                            scanStatus.textContent = 'ផ្ទៀងផ្ទាត់ជោគជ័យ!';
+                            scanOverlay.className = 'absolute inset-0 border-4 border-green-500 rounded-lg';
+                            clearInterval(faceScanInterval);
+                            faceScanInterval = null;
+                            setTimeout(completeLogin, 1000); // Wait 1 sec before closing
+                        } else {
+                            // No match
+                            scanStatus.textContent = 'មិនស្គាល់មុខ... សូមព្យាយាមម្ដងទៀត។';
+                            scanOverlay.className = 'absolute inset-0 border-4 border-red-500 rounded-lg';
+                        }
+                    } else {
+                        // No face detected
+                        scanStatus.textContent = 'រកមិនឃើញមុខ... សូមដាក់មុខឲ្យចំ។';
+                        scanOverlay.className = 'absolute inset-0 border-4 border-blue-500 rounded-lg animate-pulse';
+                    }
+                } catch (err) {
+                    console.error('Error during detection interval:', err);
+                    scanStatus.textContent = 'មានបញ្ហាពេលកំពុងវិភាគ...';
+                }
+            }, 700); // Check every 700ms
+        }
+        
+        // ======================================
+
+        function completeLogin() {
+            // Stop camera and interval
+            stopScan();
             
             // Hide modal
             scanModal.classList.add('hidden');
@@ -470,14 +618,28 @@
             document.getElementById('account-gender').textContent = currentUser.gender || 'N/A';
         }
 
-        // --- Cancel Scan ---
-        cancelScanBtn.addEventListener('click', () => {
+        // --- NEW: Refactored cleanup functions ---
+        function stopScan() {
+             // Stop recognition interval
+            if (faceScanInterval) {
+                clearInterval(faceScanInterval);
+                faceScanInterval = null;
+            }
+            // Stop camera
             if (cameraStream) {
                 cameraStream.getTracks().forEach(track => track.stop());
                 cameraStream = null;
+                cameraFeed.srcObject = null;
             }
+        }
+        
+        function cancelScan() {
+            stopScan();
             scanModal.classList.add('hidden');
-        });
+        }
+
+        // --- Cancel Scan ---
+        cancelScanBtn.addEventListener('click', cancelScan);
 
         // --- Logout Logic ---
         logoutButton.addEventListener('click', () => {
@@ -490,16 +652,44 @@
             pages.home.classList.add('hidden'); // Explicitly hide home
         });
 
+        // --- NEW: Load Face-API Models on Startup ---
+        async function loadFaceApiModels() {
+            // Use tiny models for faster mobile performance
+            // FIX: The path should be 'weights' not 'models' for this CDN version
+            const MODEL_URL = 'https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@0.22.2/weights';
+            try {
+                modelStatus.textContent = 'កំពុងទាញយក Model...';
+                await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
+                await faceapi.nets.faceLandmark68TinyNet.loadFromUri(MODEL_URL);
+                await faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL);
+                modelsLoaded = true;
+                modelStatus.textContent = 'Model បានត្រៀមរួចរាល់';
+                console.log('Face-API models loaded');
+            } catch (err) {
+                console.error('Error loading face-api models:', err);
+                modelStatus.textContent = 'Error: មិនអាចទាញយក Model បាន';
+            }
+        }
+
 
         // Set the default page to 'home' when the app loads
         document.addEventListener('DOMContentLoaded', () => {
-            // DO NOT showPage('home') anymore.
-            // Start by fetching users for the login page.
+            // Start by fetching users for the login page
             fetchUsers();
+            
+            // NEW: Load face-api models
+            // We can call this directly because `faceapi` is guaranteed
+            // to be available by the 'defer' attribute on the script tag.
+            // This avoids the need for setInterval.
+            if (typeof faceapi !== 'undefined') {
+                loadFaceApiModels();
+            } else {
+                console.error("Face-API.js did not load correctly.");
+                modelStatus.textContent = 'Error: មិនអាចទាញយក Library ស្កេនមុខបាន';
+            }
         });
     </script>
 
 </body>
 </html>
-
 
