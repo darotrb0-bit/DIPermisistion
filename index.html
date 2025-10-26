@@ -19,7 +19,7 @@
         import { 
             getAuth, 
             signInAnonymously, 
-            signInWithCustomToken, 
+            // EDITED: Removed signInWithCustomToken as we are switching to Anonymous
             onAuthStateChanged 
         } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { 
@@ -30,19 +30,30 @@
             query, 
             where, 
             onSnapshot, 
-            serverTimestamp,
-            orderBy // Note: orderBy might require composite indexes in Firestore
+            serverTimestamp
         } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        // --- Global State & Element References (Moved to top) ---
-        let db, auth, appId, userId;
-        let historyUnsubscribe = null; // To store the onSnapshot listener detachment function
-        let allUsersData = []; // To store user data from Google Sheet
-        let currentUser = null; // To store logged-in user details
-        let selectedUserId = null; // To store user ID from dropdown
-        let faceScanInterval = null; // To store interval for face scanning
+        // --- Hard-coded Firebase Config ---
+        const firebaseConfig = {
+            apiKey: "AIzaSyDjr_Ha2RxOWEumjEeSdluIW3JmyM76mVk",
+            authDomain: "dipermisstion.firebaseapp.com",
+            projectId: "dipermisstion",
+            storageBucket: "dipermisstion.firebasestorage.app",
+            messagingSenderId: "512999406057",
+            appId: "1:512999406057:web:953a281ab9dde7a9a0f378", 
+            measurementId: "G-KDPHXZ7H4B"
+        };
+        // --- End of Hard-coded Config ---
 
-        // --- Google Sheet Config (Moved to top) ---
+        // --- Global State & Element References ---
+        let db, auth, appId, userId;
+        let historyUnsubscribe = null; 
+        let allUsersData = []; 
+        let currentUser = null; 
+        let selectedUserId = null; 
+        let faceScanInterval = null; 
+
+        // --- Google Sheet Config ---
         const SHEET_ID = '1_Kgl8UQXRsVATt_BOHYQjVWYKkRIBA12R-qnsBoSUzc';
         const SHEET_NAME = 'បញ្ជឺឈ្មោះរួម';
         const GVIZ_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?sheet=${encodeURIComponent(SHEET_NAME)}&tq=${encodeURIComponent('SELECT E, L, AA, N, G, S WHERE E IS NOT NULL OFFSET 0')}`;
@@ -52,9 +63,9 @@
         const CHAT_ID = '1487065922';
         
         // --- Firestore Collection Path ---
-        let leaveRequestsCollectionPath; // Will be set after appId is available
+        let leaveRequestsCollectionPath; 
 
-        // --- Element References (Defined after DOMContentLoaded) ---
+        // --- Element References ---
         let userSearchInput, userDropdown, userSearchError, scanFaceBtn, modelStatusEl, 
             faceScanModal, video, scanStatusEl, scanDebugEl, cancelScanBtn, 
             loginFormContainer, inAppWarning, dataLoadingIndicator, rememberMeCheckbox, 
@@ -65,7 +76,8 @@
             durationSearchInput, durationDropdownEl, singleDateContainer, dateRangeContainer, 
             singleDateInput, startDateInput, endDateInput, requestErrorEl, requestLoadingEl, 
             historyContainer, historyPlaceholder,
-            reasonSearchInput, reasonDropdownEl, selectedDuration, selectedReason;
+            reasonSearchInput, reasonDropdownEl, selectedDuration, selectedReason,
+            criticalErrorDisplay; 
 
         // --- App Initialization ---
         document.addEventListener('DOMContentLoaded', async () => {
@@ -116,27 +128,26 @@
             historyPlaceholder = document.getElementById('history-placeholder');
             reasonSearchInput = document.getElementById('reason-search');
             reasonDropdownEl = document.getElementById('reason-dropdown');
+            criticalErrorDisplay = document.getElementById('critical-error-display');
 
             // --- Firebase Initialization ---
             try {
-                const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
-                appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-                const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
-                
-                // FIXED: Set the collection path *after* appId is defined
-                leaveRequestsCollectionPath = `/artifacts/${appId}/public/data/leave_requests`;
-
+                // Use the hard-coded config
                 const app = initializeApp(firebaseConfig);
                 db = getFirestore(app);
                 auth = getAuth(app);
+                
+                // Get Canvas appId (still needed for Firestore path)
+                const canvasAppId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+                leaveRequestsCollectionPath = `/artifacts/${canvasAppId}/public/data/leave_requests`;
 
                 // --- Firebase Authentication ---
                 onAuthStateChanged(auth, (user) => {
                     if (user) {
                         console.log("Firebase Auth state changed. User ID:", user.uid);
-                        userId = user.uid; // Set global userId
+                        userId = user.uid; // Set global userId (Firebase Auth UID)
 
-                        // --- Check for Remembered User (localStorage) ---
+                        // Check for Remembered User (localStorage)
                         const rememberedUser = localStorage.getItem('leaveAppUser');
                         if (rememberedUser) {
                             try {
@@ -162,17 +173,29 @@
                     }
                 });
 
-                if (initialAuthToken) {
-                    await signInWithCustomToken(auth, initialAuthToken);
-                    console.log("Firebase Auth: Signed in with Custom Token.");
-                } else {
+                // --- EDITED: Switched to Anonymous Sign-In ---
+                // We no longer use Custom Token, as per user's setup
+                try {
                     await signInAnonymously(auth);
                     console.log("Firebase Auth: Signed in Anonymously.");
+                } catch (anonError) {
+                    console.error("Anonymous Sign-In Error:", anonError);
+                    // This error will happen if "Anonymous" is not enabled in Firebase Console
+                    if (anonError.code === 'auth/operation-not-allowed') {
+                        throw new Error("សូមបើក 'Anonymous' sign-in នៅក្នុង Firebase Console (Authentication > Sign-in method)។");
+                    }
+                    throw anonError;
                 }
+                // --- End of Edit ---
 
             } catch (e) {
                 console.error("Firebase Initialization Error:", e);
-                document.body.innerHTML = `<div class="p-4 text-center text-red-600"><strong>Critical Error:</strong> មិនអាចតភ្ជាប់ Firebase បានទេ។ សូម Refresh ទំព័រ។</div>`;
+                // Show critical error message to user
+                if(criticalErrorDisplay) {
+                    criticalErrorDisplay.classList.remove('hidden');
+                    criticalErrorDisplay.textContent = `Critical Error: មិនអាចតភ្ជាប់ Firebase បានទេ។ ${e.message}។ សូម Refresh ម្ដងទៀត។`;
+                }
+                if(loginPage) loginPage.classList.add('hidden'); // Hide login form
             }
 
             // --- Main App Logic (to be called after auth) ---
@@ -493,6 +516,7 @@
                 // Hide login page, show app
                 if (loginPage) loginPage.classList.add('hidden');
                 if (mainAppContainer) mainAppContainer.classList.remove('hidden');
+                if (criticalErrorDisplay) criticalErrorDisplay.classList.add('hidden');
 
                 // Navigate to home
                 navigateTo('page-home');
@@ -725,7 +749,7 @@
                     
                     // Prepare data for Firestore
                     const requestData = {
-                        userId: currentUser.id,
+                        userId: currentUser.id, // Employee ID (e.g., DIT123)
                         name: currentUser.name,
                         department: currentUser.department,
                         photo: currentUser.photo,
@@ -736,10 +760,10 @@
                         status: 'pending', // Initial status
                         requestedAt: serverTimestamp(), // Use server timestamp
                         requestId: requestId,
-                        firestoreUserId: userId // The authenticated user's UID
+                        firestoreUserId: userId // The authenticated user's UID (Firebase Auth UID)
                     };
 
-                    // FIXED: Use correct Firestore path
+                    // Use correct Firestore path
                     const requestRef = doc(db, leaveRequestsCollectionPath, requestId);
                     await setDoc(requestRef, requestData);
 
@@ -917,6 +941,11 @@
     </style>
 </head>
 <body class="bg-gray-100">
+
+    <!-- ===== CRITICAL ERROR DISPLAY ===== -->
+    <div id="critical-error-display" class="max-w-md mx-auto min-h-screen flex flex-col justify-center items-center p-6 text-center text-red-600 font-semibold hidden">
+        <!-- Error message will be injected here by JS -->
+    </div>
 
     <!-- ===== LOGIN PAGE ===== -->
     <div id="page-login" class="max-w-md mx-auto min-h-screen flex flex-col justify-center items-center p-6 bg-gray-50">
