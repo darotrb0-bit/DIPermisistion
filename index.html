@@ -499,8 +499,6 @@
                 // 1. Get Reference Descriptor from User's Photo
                 scanStatusEl.textContent = 'កំពុងទាញយករូបថតយោង...';
                 
-                // LATEST FIX: Fetch image directly. Remove Google Proxy.
-                // We need to add crossOrigin = 'anonymous' for face-api to fetch cross-domain images
                 let referenceImage;
                 try {
                     const img = new Image();
@@ -539,10 +537,14 @@
                         // 4. Compare descriptors
                         const distance = faceapi.euclideanDistance(referenceDescriptor, detections.descriptor);
                         const similarity = (1 - distance).toFixed(2);
-                        scanDebugEl.textContent = `ភាពស្រដៀងគ្នា: ${similarity} (ត្រូវតែ > 0.40)`;
+                        
+                        // LATEST FIX: Changed threshold from 0.40 to 0.55
+                        // A lower distance means a better match.
+                        // 0.6 is the default in face-api.js examples. 0.55 is slightly stricter but reasonable.
+                        const threshold = 0.55; 
+                        scanDebugEl.textContent = `ភាពស្រដៀងគ្នា: ${similarity} (ត្រូវតែ > ${1-threshold})`;
 
-                        // We use a threshold of 0.40 (60% similar). Lower is stricter.
-                        if (distance < 0.40) { 
+                        if (distance < threshold) { 
                             scanStatusEl.textContent = 'ផ្ទៀងផ្ទាត់ជោគជ័យ!';
                             stopFaceScan();
                             loginUser(selectedUserId);
@@ -563,7 +565,7 @@
                     faceScanModal.classList.add('hidden'); 
                     // Show a cleaner alert
                     alert(`មានបញ្ហាពេលស្កេនមុខ៖\n${error.message}`);
-                }, 500); // Shorter delay
+                }, 500);
             }
         }
 
@@ -647,8 +649,6 @@
         function populateAccountPage(user) {
             const userPhotoEl = document.getElementById('user-photo');
             if (userPhotoEl && user.photo) {
-                // Use Google proxy to avoid CORS issues
-                // LATEST FIX: Use direct link for user photo as well, with crossOrigin
                 const img = new Image();
                 img.crossOrigin = "anonymous";
                 img.src = user.photo;
@@ -702,7 +702,10 @@
             });
             
             // Scroll to top
-            document.getElementById('main-content').scrollTop = 0;
+            const mainContent = document.getElementById('main-content');
+            if (mainContent) {
+                mainContent.scrollTop = 0;
+            }
         }
 
         navButtons.forEach(button => {
