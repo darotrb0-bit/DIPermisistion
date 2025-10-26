@@ -498,16 +498,23 @@
             try {
                 // 1. Get Reference Descriptor from User's Photo
                 scanStatusEl.textContent = 'កំពុងទាញយករូបថតយោង...';
-                // Use Google proxy to avoid CORS issues
-                const proxyUrl = `https://images1-focus-opensocial.googleusercontent.com/gadgets/proxy?container=focus&resize_w=300&url=${encodeURIComponent(user.photo)}`;
                 
+                // LATEST FIX: Fetch image directly. Remove Google Proxy.
+                // We need to add crossOrigin = 'anonymous' for face-api to fetch cross-domain images
                 let referenceImage;
                 try {
-                    referenceImage = await faceapi.fetchImage(proxyUrl);
+                    const img = new Image();
+                    img.crossOrigin = 'anonymous'; // This is crucial for cross-origin image fetching
+                    img.src = user.photo;
+                    await new Promise((resolve, reject) => {
+                        img.onload = resolve;
+                        img.onerror = (err) => reject(new Error('Failed to fetch (មិនអាចទាញយករូបថតយោងបាន)។ សូមប្រាកដថា Link រូបថតត្រឹមត្រូវ និងសាកល្បងម្ដងទៀត។'));
+                    });
+                    referenceImage = img;
+
                 } catch (fetchError) {
                     console.error('Fetch image error:', fetchError);
-                    // This is the error from the user's screenshot
-                    throw new Error('Failed to fetch (មិនអាចទាញយករូបថតយោងបាន)។ សូមប្រាកដថា Link រូបថតត្រឹមត្រូវ និងសាកល្បងម្ដងទៀត។');
+                    throw fetchError; // Re-throw the custom error message
                 }
                 
                 scanStatusEl.textContent = 'កំពុងវិភាគរូបថតយោង...';
@@ -641,8 +648,14 @@
             const userPhotoEl = document.getElementById('user-photo');
             if (userPhotoEl && user.photo) {
                 // Use Google proxy to avoid CORS issues
-                userPhotoEl.src = `https://images1-focus-opensocial.googleusercontent.com/gadgets/proxy?container=focus&resize_w=300&url=${encodeURIComponent(user.photo)}`;
-                userPhotoEl.onerror = () => { 
+                // LATEST FIX: Use direct link for user photo as well, with crossOrigin
+                const img = new Image();
+                img.crossOrigin = "anonymous";
+                img.src = user.photo;
+                img.onload = () => {
+                    userPhotoEl.src = img.src;
+                };
+                img.onerror = () => { 
                     userPhotoEl.src = 'https://placehold.co/100x100/e2e8f0/64748b?text=គ្មានរូប';
                 };
             } else if (userPhotoEl) {
