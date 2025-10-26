@@ -4,48 +4,56 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>កម្មវិធីសុំច្បាប់ - ឧស្សាហកម្មឌីជីថល</title>
-    
-    <!-- Import Tailwind CSS -->
+    <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
-    
-    <!-- Import Khmer Font (Kantumruy Pro) -->
+    <!-- Google Font: Khmer -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Kantumruy+Pro:wght@400;600;700&display=swap" rel="stylesheet">
-    
-    <!-- 
-      ===== Import face-api.js =====
-      'defer' ensures this script runs AFTER the HTML is parsed
-      but BEFORE DOMContentLoaded.
-    -->
+    <link href="https://fonts.googleapis.com/css2?family=Kantumruy+Pro:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- face-api.js -->
     <script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
-    
+
     <style>
-        /* Apply the font to the whole application */
         body {
             font-family: 'Kantumruy Pro', sans-serif;
+            -webkit-tap-highlight-color: transparent; /* Remove tap highlight on mobile */
+        }
+        /* Custom scrollbar for dropdown */
+        #user-dropdown {
+            scrollbar-width: thin;
+            scrollbar-color: #9ca3af #f3f4f6;
+        }
+        #user-dropdown::-webkit-scrollbar {
+            width: 6px;
+        }
+        #user-dropdown::-webkit-scrollbar-track {
+            background: #f3f4f6;
+            border-radius: 10px;
+        }
+        #user-dropdown::-webkit-scrollbar-thumb {
+            background-color: #9ca3af;
+            border-radius: 10px;
+            border: 2px solid #f3f4f6;
+        }
+        
+        /* Loading Spinner */
+        .spinner {
+            border: 4px solid rgba(0, 0, 0, 0.1);
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            border-left-color: #09f;
+            animation: spin 1s ease infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
         }
     </style>
-    
-    <!-- Configure Tailwind to use the imported font -->
-    <script>
-        tailwind.config = {
-            theme: {
-                extend: {
-                    fontFamily: {
-                        sans: ['Kantumruy Pro', 'sans-serif'],
-                    },
-                },
-            },
-        }
-    </script>
 </head>
 <body class="bg-gray-100">
 
-    <!-- 
-      ===== PAGE 0: LOGIN =====
-      This page is now the default, shown before the main app.
-    -->
+    <!-- ===== LOGIN PAGE ===== -->
     <div id="page-login" class="max-w-md mx-auto min-h-screen flex flex-col justify-center items-center p-6 bg-gray-50">
         <!-- Logo and Title -->
         <img src="https://i.postimg.cc/FHBn0Fdf/di3-copy.png" alt="Logo" class="h-20 w-20 mb-4">
@@ -64,28 +72,115 @@
             <p class="mt-2">បន្ទាប់មក កម្មវិធីនឹងបើកក្នុង Chrome/Safari ហើយកាមេរ៉ានឹងដំណើរការ។</p>
         </div>
 
-        <!-- Form (will be hidden by JS if warning is shown) -->
-        <div id="login-form-container" class="w-full bg-white p-6 rounded-lg shadow-md border border-gray-200">
-            <!-- Dropdown -->
-            <label for="user-select" class="block text-sm font-medium text-gray-700 mb-2">ជ្រើសរើសអត្តលេខ (ID)</label>
-            
-            <!-- Wrapper for input and custom dropdown -->
+        <!-- NEW: Data Loading Indicator -->
+        <div id="data-loading-indicator" class="w-full max-w-sm p-6 bg-white rounded-lg shadow-md border border-gray-200 flex flex-col items-center justify-center hidden">
+            <div class="spinner mb-4"></div>
+            <p class="text-gray-600 font-medium">កំពុងទាញយកទិន្នន័យបុគ្គលិក...</p>
+            <p class="text-xs text-gray-400 mt-1">សូមរង់ចាំបន្តិច</p>
+        </div>
+
+        <!-- Form (will be hidden by default now, and shown by JS) -->
+        <div id="login-form-container" class="w-full bg-white p-6 rounded-lg shadow-md border border-gray-200 hidden">
+            <!-- Searchable Dropdown -->
+            <label for="user-search" class="block text-sm font-medium text-gray-700 mb-2">ជ្រើសរើសអត្តលេខ (ID)</label>
             <div class="relative">
-                <!-- Removed list="user-datalist" and added autocomplete="off" -->
-                <input id="user-select" autocomplete="off" placeholder="វាយ ឬ ជ្រើសរើស..." class="w-full p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 bg-white">
-                
-                <!-- Custom dropdown container -->
-                <div id="user-dropdown" class="hidden absolute w-full bg-white border border-gray-300 rounded-b-lg max-h-60 overflow-y-auto z-20 shadow-lg" style="top: 100%;">
-                    <!-- Dropdown items will be populated by JS -->
+                <input
+                    type="text"
+                    id="user-search"
+                    placeholder="វាយ ឬ ជ្រើសរើស..."
+                    class="w-full px-4 py-3 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    autocomplete="off"
+                >
+                <!-- Custom Dropdown List -->
+                <div
+                    id="user-dropdown"
+                    class="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto hidden"
+                >
+                    <!-- User items will be injected here by JS -->
                 </div>
             </div>
             
-            <p id="user-select-error" class="text-red-500 text-sm mt-1 hidden">សូមជ្រើសរើសឈ្មោះរបស់អ្នក</p>
+            <p id="user-search-error" class="text-red-500 text-sm mt-1 hidden">សូមជ្រើសរើសអត្តលេខឲ្យបានត្រឹមត្រូវ</p>
 
-            <!-- Face Scan Button -->
-            <button id="face-scan-login" class="w-full bg-blue-600 text-white py-3 rounded-lg shadow-md hover:bg-blue-700 transition-all font-semibold mt-6 flex items-center justify-center space-x-2">
+            <!-- Remember Me Checkbox -->
+            <div class="flex items-center mt-4">
+                <input id="remember-me" name="remember-me" type="checkbox" class="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500">
+                <!-- EDITED: Changed "trên" to "នៅលើ" -->
+                <label for="remember-me" class="ml-2 block text-sm text-gray-700">ចងចាំខ្ញុំនៅលើ Device នេះ</label>
+            </div>
+
+            <!-- Login Button -->
+            <button id="scan-face-btn" class="mt-6 w-full bg-blue-600 text-white py-3 px-4 rounded-lg font-semibold shadow-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-all duration-150 flex items-center justify-center space-x-2 disabled:opacity-50">
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                  <path d="M2 6a2 2 0 012-2h6a2 2 0 012 2v8a2 2 0 01-2 2H4a2 2 0 01-2-2V6zM14.553 4.372A1 1 0 0116 5.175v9.65a1 1 0 01-1.447.894L12 13.431V6.569l2.553-2.197z" />
+                    <path fill-rule="evenodd" d="M4 2a2 2 0 00-2 2v12a2 2 0 002 2h12a2 2 0 002-2V4a2 2 0 00-2-2H4zm11 11H5V5h10v8zm-5 2a3 3 0 100-6 3 3 0 000 6z" clip-rule="evenodd" />
+                </svg>
+                <span>ចូលដោយស្កេនផ្ទៃមុខ</span>
+            </button>
+            <p id="model-status" class="text-xs text-gray-500 text-center mt-2"></p>
+        </div>
+    </div>
+<body class="bg-gray-100">
+
+    <!-- ===== LOGIN PAGE ===== -->
+    <div id="page-login" class="max-w-md mx-auto min-h-screen flex flex-col justify-center items-center p-6 bg-gray-50">
+        <!-- Logo and Title -->
+        <img src="https://i.postimg.cc/FHBn0Fdf/di3-copy.png" alt="Logo" class="h-20 w-20 mb-4">
+        <h1 class="text-2xl font-bold text-blue-800 mb-2">ឧស្សាហកម្មឌីជីថល</h1>
+        <p class="text-gray-600 mb-8">សូមចូលប្រើកម្មវិធីសុំច្បាប់</p>
+
+        <!-- NEW: In-App Browser Warning -->
+        <div id="in-app-warning" class="w-full max-w-sm p-4 bg-yellow-100 border border-yellow-300 rounded-lg text-yellow-800 text-sm text-left hidden">
+            <p class="font-bold text-base mb-2">បញ្ហាកាមេរ៉ា!</p>
+            <p>កម្មវិធីនេះ ត្រូវការបើកកាមេរ៉ា ដែលមិនអាចដំណើរការក្នុង Telegram/Facebook បានទេ។</p>
+            <p class="font-semibold mt-3">ដំណោះស្រាយ៖</p>
+            <ol class="list-decimal list-inside mt-1">
+                <li>នៅខាងលើស្តាំ, ចុចសញ្ញា <span class="font-bold">...</span></li>
+                <li>ជ្រើសរើស "Open in Browser" (បើកក្នុង Browser)</li>
+            </ol>
+            <p class="mt-2">បន្ទាប់មក កម្មវិធីនឹងបើកក្នុង Chrome/Safari ហើយកាមេរ៉ានឹងដំណើរការ។</p>
+        </div>
+
+        <!-- NEW: Data Loading Indicator -->
+        <div id="data-loading-indicator" class="w-full max-w-sm p-6 bg-white rounded-lg shadow-md border border-gray-200 flex flex-col items-center justify-center hidden">
+            <div class="spinner mb-4"></div>
+            <p class="text-gray-600 font-medium">កំពុងទាញយកទិន្នន័យបុគ្គលិក...</p>
+            <p class="text-xs text-gray-400 mt-1">សូមរង់ចាំបន្តិច</p>
+        </div>
+
+        <!-- Form (will be hidden by default now, and shown by JS) -->
+        <div id="login-form-container" class="w-full bg-white p-6 rounded-lg shadow-md border border-gray-200 hidden">
+            <!-- Searchable Dropdown -->
+            <label for="user-search" class="block text-sm font-medium text-gray-700 mb-2">ជ្រើសរើសអត្តលេខ (ID)</label>
+            <div class="relative">
+                <input
+                    type="text"
+                    id="user-search"
+                    placeholder="វាយ ឬ ជ្រើសរើស..."
+                    class="w-full px-4 py-3 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    autocomplete="off"
+                >
+                <!-- Custom Dropdown List -->
+                <div
+                    id="user-dropdown"
+                    class="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto hidden"
+                >
+                    <!-- User items will be injected here by JS -->
+                </div>
+            </div>
+            
+            <p id="user-search-error" class="text-red-500 text-sm mt-1 hidden">សូមជ្រើសរើសអត្តលេខឲ្យបានត្រឹមត្រូវ</p>
+
+            <!-- Remember Me Checkbox -->
+            <div class="flex items-center mt-4">
+                <input id="remember-me" name="remember-me" type="checkbox" class="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500">
+                <!-- EDITED: Changed "trên" to "នៅលើ" -->
+                <label for="remember-me" class="ml-2 block text-sm text-gray-700">ចងចាំខ្ញុំនៅលើ Device នេះ</label>
+            </div>
+
+            <!-- Login Button -->
+            <button id="scan-face-btn" class="mt-6 w-full bg-blue-600 text-white py-3 px-4 rounded-lg font-semibold shadow-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-all duration-150 flex items-center justify-center space-x-2 disabled:opacity-50">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                    <path fill-rule="evenodd" d="M4 2a2 2 0 00-2 2v12a2 2 0 002 2h12a2 2 0 002-2V4a2 2 0 00-2-2H4zm11 11H5V5h10v8zm-5 2a3 3 0 100-6 3 3 0 000 6z" clip-rule="evenodd" />
                 </svg>
                 <span>ចូលដោយស្កេនផ្ទៃមុខ</span>
             </button>
@@ -94,276 +189,206 @@
     </div>
 
     <!-- ===== Face Scan Modal ===== -->
-    <div id="scan-modal" class="fixed inset-0 bg-black bg-opacity-75 flex flex-col items-center justify-center z-50 hidden">
-        <div class="bg-white p-6 rounded-lg shadow-xl text-center max-w-xs w-full">
-            <h3 class="text-lg font-semibold mb-4">កំពុងស្កេនផ្ទៃមុខ</h3>
-            <div class="relative w-full h-48 bg-gray-900 rounded-lg overflow-hidden mb-4">
-                <video id="camera-feed" class="w-full h-full object-cover" autoplay playsinline muted></video>
-                <!-- "Scanning" overlay animation -->
-                <div class-></div>
-                <div id="scan-overlay" class="absolute inset-0 border-4 border-blue-500 rounded-lg animate-pulse"></div>
+    <div id="face-scan-modal" class="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-70 hidden">
+        <div class="bg-white p-6 rounded-lg shadow-xl w-11/12 max-w-md text-center">
+            <h3 class="text-xl font-bold mb-4">កំពុងស្កេនផ្ទៃមុខ</h3>
+            <div class="relative w-full h-64 bg-gray-800 rounded-lg overflow-hidden border-4 border-blue-500">
+                <video id="video" class="w-full h-full object-cover" autoplay muted playsinline></video>
+                <div id="scan-overlay" class="absolute inset-0 border-8 border-transparent animate-pulse"></div>
             </div>
-            <p id="scan-status" class="text-gray-600">សូមដាក់មុខឲ្យចំកាមេរ៉ា...</p>
-            <button id="cancel-scan" class="mt-4 text-sm text-gray-500 hover:underline">បោះបង់</button>
+            <p id="scan-status" class="mt-4 text-lg font-medium text-gray-700">រកមិនឃើញផ្ទៃមុខ...</p>
+            <p id="scan-debug" class="text-xs text-gray-500 h-4"></p>
+            <button id="cancel-scan-btn" class="mt-4 w-full bg-gray-200 text-gray-800 py-2 px-4 rounded-lg font-semibold hover:bg-gray-300">
+                បោះបង់
+            </button>
         </div>
     </div>
 
-
-    <!-- 
-      Main application container. 
-      This now wraps the original app and is hidden by default.
-    -->
-    <div id="main-app-container" class="max-w-md mx-auto bg-white min-h-screen shadow-lg hidden">
+    <!-- ===== MAIN APP (Hidden by default) ===== -->
+    <div id="main-app-container" class="max-w-md mx-auto min-h-screen bg-white shadow-lg hidden">
         
-        <!-- Header Section -->
-        <header class="bg-white shadow-md p-4 sticky top-0 z-10">
-            <div class="flex items-center space-x-3">
-                <img src="https://i.postimg.cc/FHBn0Fdf/di3-copy.png" alt="Logo" class="h-10 w-10 object-contain">
-                <div>
-                    <h1 class="text-xl font-bold text-blue-800">ឧស្សាហកម្មឌីជីថល</h1>
-                    <p class="text-sm text-gray-500">កម្មវិធីស្នើសុំច្បាប់</p>
-                </div>
-            </div>
-        </header>
-
-        <!-- 
-          Page Content Area 
-          We have 3 page containers. JavaScript will show/hide them.
-          pb-20 (padding-bottom) is added to avoid content being hidden by the fixed bottom nav.
-        -->
-        <main class="p-4 pb-24">
-
+        <!-- Main Content Area -->
+        <main id="main-content" class="pb-20">
             <!-- ===== PAGE 1: HOME (ទំព័រដើម) ===== -->
-            <div id="page-home">
-                <section class="mb-6">
-                    <h2 class="text-lg font-semibold text-gray-700 mb-3">សួស្តី, សូមស្វាគមន៍!</h2>
-                    <p class="text-gray-600">សូមជ្រើសរើសប្រភេទសំណើសុំច្បាប់ខាងក្រោម៖</p>
-                </section>
-
-                <!-- Leave Request Options -->
-                <section class="space-y-4">
-                    <h3 class="text-md font-semibold text-gray-700">បង្កើតសំណើថ្មី</h3>
-                    
-                    <!-- Option 1: Leave to go out -->
-                    <button class="w-full bg-blue-600 text-white p-6 rounded-lg shadow-md hover:bg-blue-700 transition-all flex items-center space-x-4">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                          <path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
+            <div id="page-home" class="p-6">
+                <!-- Header -->
+                <header class="flex items-center justify-between mb-8">
+                    <div class="flex items-center space-x-3">
+                        <img src="https://i.postimg.cc/FHBn0Fdf/di3-copy.png" alt="Logo" class="h-10 w-10 rounded-full border">
                         <div>
-                            <p class="text-lg font-semibold text-left">សំណើសុំច្បាប់ចេញក្រៅ</p>
-                            <p class="text-sm text-blue-100 text-left">សម្រាប់ចេញក្រៅបន្តិចបន្តួច (ឧ. ទៅធនាគារ)</p>
+                            <p class="text-sm text-gray-500">ស្វាគមន៍</p>
+                            <h2 id="home-user-name" class="text-xl font-bold text-gray-800">...</h2>
                         </div>
-                    </button>
-                    
-                    <!-- Option 2: Leave of absence -->
-                    <button class="w-full bg-teal-600 text-white p-6 rounded-lg shadow-md hover:bg-teal-700 transition-all flex items-center space-x-4">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                          <path stroke-linecap="round" stroke-linejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                        </svg>
+                    </div>
+                </header>
+
+                <!-- Request Types Section -->
+                <section>
+                    <h3 class="text-md font-semibold text-gray-700 mb-3">ប្រភេទសំណើសុំច្បាប់</h3>
+                    <div class="grid grid-cols-2 gap-4">
+                        <!-- Leave Request -->
+                        <button class="bg-blue-50 border border-blue-200 text-blue-800 p-6 rounded-lg shadow-sm hover:bg-blue-100 transition-all">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12 mb-2 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                            </svg>
+                            <p class="text-lg font-semibold">សុំច្បាប់ឈប់</p>
+                            <p class="text-sm">ឈប់សម្រាក</p>
+                        </button>
+                        <!-- Out Request -->
+                        <button class="bg-green-50 border border-green-200 text-green-800 p-6 rounded-lg shadow-sm hover:bg-green-100 transition-all">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12 mb-2 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                            <p class="text-lg font-semibold">សុំច្បាប់ចេញក្រៅ</p>
+                            <p class="text-sm">ចេញក្រៅផ្ទាល់ខ្លួន</p>
+                        </button>
+                    </div>
+                </section>
+                
+                <!-- Approver Section -->
+                <section class="mt-8">
+                    <h3 class="text-md font-semibold text-gray-700 mb-3">អ្នកអនុញ្ញាតច្បាប់</h3>
+                    <button class="w-full bg-white border border-gray-300 p-4 rounded-lg shadow-sm hover:bg-gray-50 transition-all flex items-center space-x-4">
+                        <img src="https://placehold.co/60x60/e2e8f0/64748b?text=Photo" alt="Approver" class="h-16 w-16 rounded-full border-2 border-white shadow-md">
                         <div>
-                            <p class="text-lg font-semibold text-left">សំណើសុំច្បាប់ឈប់សម្រាក</p>
-                            <p class="text-sm text-teal-100 text-left">សម្រាប់ឈប់ (ឈឺ, ធុរៈ, សម្រាកប្រចាំឆ្នាំ)</p>
+                            <p class="text-lg font-semibold text-gray-800 text-left">លោកគ្រូ​ ពៅ ដារ៉ូ</p>
+                            <p class="text-sm text-gray-500 text-left">គណៈគ្រប់គ្រង</p>
                         </div>
                     </button>
                 </section>
                 
-                <!-- Recent Requests (Mock data) -->
+                <!-- UPDATED: Leave History Section -->
                 <section class="mt-8">
-                    <h3 class="text-md font-semibold text-gray-700 mb-3">សំណើថ្មីៗរបស់ខ្ញុំ</h3>
-                    <div class="space-y-3">
-                        <div class="bg-white border border-gray-200 p-4 rounded-lg shadow-sm">
-                            <div class="flex justify-between items-center">
-                                <p class="font-semibold text-gray-800">ច្បាប់ចេញក្រៅ</p>
-                                <span class="text-xs font-medium bg-yellow-100 text-yellow-800 px-2 py-0.5 rounded-full">រង់ចាំ...</span>
-                            </div>
-                            <p class="text-sm text-gray-500">ថ្ងៃទី ២៦ តុលា ២០២៥ (២ ម៉ោង)</p>
+                    <h3 class="text-md font-semibold text-gray-700 mb-3">ប្រវតិ្តសុំច្បាប់</h3>
+                    <button class="w-full bg-white border border-gray-300 text-gray-700 p-6 rounded-lg shadow-sm hover:bg-gray-50 transition-all flex items-center space-x-4">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                          <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        </svg>
+                        <div>
+                            <p class="text-lg font-semibold text-left">មើលប្រវត្តិសំណើទាំងអស់</p>
+                            <p class="text-sm text-gray-500 text-left">ពិនិត្យមើលស្ថានភាពច្បាប់ដែលបានយល់ព្រម ឬ បដិសេធ</p>
                         </div>
-                        <div class="bg-white border border-gray-200 p-4 rounded-lg shadow-sm">
-                            <div class="flex justify-between items-center">
-                                <p class="font-semibold text-gray-800">ច្បាប់ឈប់សម្រាក (ឈឺ)</p>
-                                <span class="text-xs font-medium bg-green-100 text-green-800 px-2 py-0.5 rounded-full">បានយល់ព្រម</span>
-                            </div>
-                            <p class="text-sm text-gray-500">ថ្ងៃទី ២០ តុលា ២០២៥ (១ ថ្ងៃ)</p>
-                        </div>
-                    </div>
+                    </button>
                 </section>
             </div>
 
             <!-- ===== PAGE 2: ACCOUNT (គណនី) ===== -->
-            <!-- This section is now dynamic based on logged-in user -->
-            <div id="page-account" class="hidden">
-                <h2 class="text-xl font-bold text-gray-800 mb-4">ព័ត៌មានគណនី</h2>
+            <div id="page-account" class="p-6 hidden">
+                <h2 class="text-2xl font-bold text-gray-800 mb-6 text-center">គណនីរបស់ខ្ញុំ</h2>
                 
-                <!-- Profile Card -->
-                <div class="bg-white p-6 rounded-lg shadow-md border border-gray-200 text-center mb-6">
-                    <img id="account-photo" src="https://placehold.co/100x100/EBF8FF/3182CE?text=User" alt="Profile Picture" class="w-24 h-24 rounded-full mx-auto mb-4 border-4 border-blue-200 object-cover">
-                    <h3 id="account-name" class="text-lg font-semibold text-gray-900">...</h3>
-                    <p id="account-department" class="text-gray-600">...</p>
-                </div>
-                
-                <!-- Info List -->
-                <div class="bg-white rounded-lg shadow-md border border-gray-200 divide-y divide-gray-200">
-                    <div class="p-4">
-                        <p class="text-sm text-gray-500">អត្តលេខ</p>
-                        <p id="account-id" class="font-medium text-gray-800">...</p>
+                <!-- User Info Card -->
+                <div class="bg-white rounded-lg shadow-md border border-gray-200 p-6 mb-6">
+                    <div class="flex flex-col items-center">
+                        <img id="user-photo" src="https://placehold.co/100x100/e2e8f0/64748b?text=User" alt="User Photo" class="h-24 w-24 rounded-full border-4 border-white shadow-lg mb-4">
+                        <h3 id="user-name" class="text-xl font-bold text-gray-900">...</h3>
+                        <p id="user-id" class="text-sm text-gray-500">...</p>
                     </div>
-                    <div class="p-4">
-                        <p class="text-sm text-gray-500">ក្រុម</p>
-                        <p id="account-group" class="font-medium text-gray-800">...</p>
-                    </div>
-                    <div class="p-4">
-                        <p class="text-sm text-gray-500">ភេទ</p>
-                        <p id="account-gender" class="font-medium text-gray-800">...</p>
-                    </div>
-                    <div class="p-4">
-                        <p class="text-sm text-gray-500">អ្នកអនុញ្ញាតច្បាប់</p>
-                        <p class="font-medium text-gray-800">គណៈគ្រប់គ្រង លោកគ្រូ​ ពៅ ដារ៉ូ</p>
+                    
+                    <hr class="my-6 border-gray-200">
+                    
+                    <!-- Details -->
+                    <div class="space-y-3">
+                        <div class="flex justify-between">
+                            <span class="text-gray-500 font-medium">ភេទ:</span>
+                            <span id="user-gender" class="font-semibold text-gray-800">...</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-500 font-medium">ក្រុម:</span>
+                            <span id="user-group" class="font-semibold text-gray-800">...</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-500 font-medium">ផ្នែកការងារ:</span>
+                            <span id="user-department" class="font-semibold text-gray-800">...</span>
+                        </div>
                     </div>
                 </div>
 
-                <!-- Log Out Button -->
-                <button id="logout-button" class="w-full mt-6 bg-red-500 text-white py-3 rounded-lg shadow-md hover:bg-red-600 transition-all font-semibold">
+                <!-- Logout Button -->
+                <button id="logout-btn" class="w-full bg-red-500 text-white py-3 px-4 rounded-lg font-semibold shadow-md hover:bg-red-600 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 transition-all duration-150">
                     ចាកចេញពីគណនី
                 </button>
             </div>
 
             <!-- ===== PAGE 3: HELP (ជំនួយ) ===== -->
-            <div id="page-help" class="hidden">
-                <h2 class="text-xl font-bold text-gray-800 mb-4">ជំនួយ និង ទំនាក់ទំនង</h2>
+            <div id="page-help" class="p-6 hidden">
+                <h2 class="text-2xl font-bold text-gray-800 mb-6 text-center">ជំនួយ និង ទំនាក់ទំនង</h2>
 
-                <div class="bg-white rounded-lg shadow-md border border-gray-200 divide-y divide-gray-200">
-                    <div class="p-4">
-                        <p class="text-sm text-gray-500">អ្នកភិវឌ្ឍន៍កម្មវិធី</p>
-                        <p class="font-medium text-gray-800">ក្រុមការងារ IT SUPPORT</p>
-                    </div>
+                <div class="bg-white rounded-lg shadow-md border border-gray-200 p-6 mb-6">
+                    <h3 class="text-lg font-semibold text-gray-900 mb-4">ក្រុមការងារ IT SUPPORT</h3>
+                    <p class="text-gray-600 mb-4">ប្រសិនបើអ្នកជួបបញ្ហាក្នុងការប្រើប្រាស់កម្មវិធី សូមទាក់ទងមកក្រុមការងារយើងខ្ញុំតាមរយៈ៖</p>
                     
-                    <div class="p-4">
-                        <p class="text-sm font-semibold text-gray-600 mb-2">ក្រុមការងារប្រឹក្សាបញ្ហា</p>
-                        <ul class="space-y-3">
-                            <li class="flex items-center space-x-3">
-                                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                                  <path stroke-linecap="round" stroke-linejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
-                                </svg>
-                                <a href="https://t.me/MMKDigitalIndustry" target="_blank" class="text-blue-600 hover:underline">@MMKDigitalIndustry</a>
-                            </li>
-                            <li class="flex items-center space-x-3">
-                                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                                  <path stroke-linecap="round" stroke-linejoin="round" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
-                                </svg>
-                                <a href="tel:090544452" class="text-gray-800">090 544 452</a>
-                            </li>
-                            <li class="flex items-center space-x-3">
-                                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                                  <path stroke-linecap="round" stroke-linejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                                </svg>
-                                <a href="mailto:perdigitalindustry@gmail.com" class="text-blue-600 hover:underline">perdigitalindustry@gmail.com</a>
-                            </li>
-                        </ul>
+                    <div class="space-y-4">
+                        <!-- Telegram -->
+                        <a href="https://t.me/MMKDigitalIndustry" target="_blank" class="flex items-center p-4 bg-gray-50 rounded-lg hover:bg-gray-100 border border-gray-200">
+                            <img src="https://upload.wikimedia.org/wikipedia/commons/8/82/Telegram_logo.svg" alt="Telegram" class="h-6 w-6">
+                            <div class="ml-4">
+                                <p class="font-semibold text-blue-600">Telegram</p>
+                                <p class="text-sm text-gray-600">@MMKDigitalIndustry</p>
+                            </div>
+                        </a>
+                        <!-- Phone -->
+                        <a href="tel:090544452" class="flex items-center p-4 bg-gray-50 rounded-lg hover:bg-gray-100 border border-gray-200">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                              <path stroke-linecap="round" stroke-linejoin="round" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
+                            </svg>
+                            <div class="ml-4">
+                                <p class="font-semibold text-green-700">លេខទូរស័ព្ទ</p>
+                                <p class="text-sm text-gray-600">090 544 452</p>
+                            </div>
+                        </a>
+                        <!-- Email -->
+                        <a href="mailto:perdigitalindustry@gmail.com" class="flex items-center p-4 bg-gray-50 rounded-lg hover:bg-gray-100 border border-gray-200">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                              <path stroke-linecap="round" stroke-linejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                            </svg>
+                            <div class="ml-4">
+                                <p class="font-semibold text-red-700">អ៊ីម៉ែល</p>
+                                <p class="text-sm text-gray-600">perdigitalindustry@gmail.com</p>
+                            </div>
+                        </a>
                     </div>
                 </div>
-            </div>
 
+                <div class="text-center text-xs text-gray-400">
+                    <p>&copy; 2024 ឧស្សាហកម្មឌីជីថល</p>
+                    <p>អភិវឌ្ឍន៍ដោយ ក្រុមការងារ IT SUPPORT</p>
+                </div>
+            </div>
         </main>
 
-        <!-- 
-          Bottom Navigation Bar 
-          It's fixed to the bottom and stays within the max-w-md constraint.
-        -->
-        <footer class="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-white border-t border-gray-200 shadow-inner">
-            <nav class="flex justify-around items-center h-16">
-                <!-- Nav Button: Home -->
-                <button id="nav-home" onclick="showPage('home')" class="nav-button flex flex-col items-center justify-center text-blue-600 w-full">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" viewBox="0 0 20 20" fill="currentColor">
-                      <path d="M10.707 2.293a1 1 0 00-1.414 0l-7 7a1 1 0 001.414 1.414L4 10.414V17a1 1 0 001 1h2a1 1 0 001-1v-2a1 1 0 011-1h2a1 1 0 011 1v2a1 1 0 001 1h2a1 1 0 001-1v-6.586l.293.293a1 1 0 001.414-1.414l-7-7z" />
-                    </svg>
-                    <span class="text-xs font-medium">ទំព័រដើម</span>
-                </button>
-                
-                <!-- Nav Button: Account -->
-                <button id="nav-account" onclick="showPage('account')" class="nav-button flex flex-col items-center justify-center text-gray-500 w-full">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" viewBox="0 0 20 20" fill="currentColor">
-                      <path fill-rule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clip-rule="evenodd" />
-                    </svg>
-                    <span class="text-xs font-medium">គណនី</span>
-                </button>
-                
-                <!-- Nav Button: Help -->
-                <button id="nav-help" onclick="showPage('help')" class="nav-button flex flex-col items-center justify-center text-gray-500 w-full">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" viewBox="0 0 20 20" fill="currentColor">
-                      <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-8-3a1 1 0 00-.867.5 1 1 0 11-1.731-1A3 3 0 0110 5a3 3 0 012.828 4.025A1 1 0 0112 10v1a1 1 0 11-2 0v-.5a1 1 0 011-1 1 1 0 100-2zm0 8a1 1 0 100-2 1 1 0 000 2z" clip-rule="evenodd" />
-                    </svg>
-                    <span class="text-xs font-medium">ជំនួយ</span>
-                </button>
-            </nav>
-        </footer>
-
+        <!-- Bottom Navigation Bar -->
+        <nav id="bottom-navigation" class="fixed bottom-0 left-0 right-0 max-w-md mx-auto h-16 bg-white border-t border-gray-200 shadow-md flex justify-around items-center">
+            <!-- Home -->
+            <button id="nav-home" class="nav-btn p-2 text-blue-600" data-page="page-home">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 mx-auto" viewBox="0 0 20 20" fill="currentColor">
+                    <path d="M10.707 2.293a1 1 0 00-1.414 0l-7 7a1 1 0 001.414 1.414L4 10.414V17a1 1 0 001 1h2a1 1 0 001-1v-2a1 1 0 011-1h2a1 1 0 011 1v2a1 1 0 001 1h2a1 1 0 001-1v-6.586l.293.293a1 1 0 001.414-1.414l-7-7z" />
+                </svg>
+                <span class="text-xs font-medium">ទំព័រដើម</span>
+            </button>
+            <!-- Account -->
+            <button id="nav-account" class="nav-btn p-2 text-gray-500" data-page="page-account">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 mx-auto" viewBox="0 0 20 20" fill="currentColor">
+                    <path fill-rule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clip-rule="evenodd" />
+                </svg>
+                <span class="text-xs font-medium">គណនី</span>
+            </button>
+            <!-- Help -->
+            <button id="nav-help" class="nav-btn p-2 text-gray-500" data-page="page-help">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 mx-auto" viewBox="0 0 20 20" fill="currentColor">
+                    <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-8-3a1 1 0 00-.867.5 1 1 0 11-1.731-1A3 3 0 0113 8a3.001 3.001 0 01-2 2.83V11a1 1 0 11-2 0v-1a1 1 0 011-1 1 1 0 100-2zm0 8a1 1 0 100-2 1 1 0 000 2z" clip-rule="evenodd" />
+                </svg>
+                <span class="text-xs font-medium">ជំនួយ</span>
+            </button>
+        </nav>
     </div>
 
+
     <script>
-        // Get all page elements
-        const pages = {
-            home: document.getElementById('page-home'),
-            account: document.getElementById('page-account'),
-            help: document.getElementById('page-help')
-        };
-        
-        // Get all nav button elements
-        const navButtons = {
-            home: document.getElementById('nav-home'),
-            account: document.getElementById('nav-account'),
-            help: document.getElementById('nav-help')
-        };
-
-        // Function to show a page and update nav
-        function showPage(pageId) {
-            // Hide all pages
-            for (const id in pages) {
-                pages[id].classList.add('hidden');
-            }
-            
-            // Deactivate all nav buttons (set to gray)
-            for (const id in navButtons) {
-                navButtons[id].classList.remove('text-blue-600');
-                navButtons[id].classList.add('text-gray-500');
-            }
-            
-            // Show the selected page
-            if (pages[pageId]) {
-                pages[pageId].classList.remove('hidden');
-            }
-            
-            // Activate the selected nav button (set to blue)
-            if (navButtons[pageId]) {
-                navButtons[pageId].classList.remove('text-gray-500');
-                navButtons[pageId].classList.add('text-blue-600');
-            }
-        }
-
-        // ===== NEW LOGIN SCRIPT =====
-
-        // --- Global variables ---
-        let allUsersData = []; // To store { id, name, photo, gender, group, department }
-        let currentUser = null;
-        let cameraStream = null;
-        let modelsLoaded = false;
-        let faceScanInterval = null;
-
-        // --- Element Caching ---
-        const pageLogin = document.getElementById('page-login');
-        const mainAppContainer = document.getElementById('main-app-container');
-        const userSelect = document.getElementById('user-select'); // This is the <input> now
-        const userDropdown = document.getElementById('user-dropdown'); // NEW custom dropdown
-        const userSelectError = document.getElementById('user-select-error');
-        const faceScanLoginBtn = document.getElementById('face-scan-login');
-        const modelStatus = document.getElementById('model-status');
-        
-        const scanModal = document.getElementById('scan-modal');
-        const cameraFeed = document.getElementById('camera-feed');
-        const scanStatus = document.getElementById('scan-status');
-        const cancelScanBtn = document.getElementById('cancel-scan');
-        const scanOverlay = document.getElementById('scan-overlay');
-        
-        const logoutButton = document.getElementById('logout-button');
+        // --- Global State ---
+        let allUsersData = []; // To store user data from Google Sheet
+        let currentUser = null; // To store logged-in user details
+        let selectedUserId = null; // To store user ID from dropdown
+        let faceScanInterval = null; // To store interval for face scanning
 
         // --- Google Sheet Data Fetching ---
         const SHEET_ID = '1_Kgl8UQXRsVATt_BOHYQjVWYKkRIBA12R-qnsBoSUzc';
@@ -375,362 +400,171 @@
 
         async function fetchUsers() {
             try {
-                const response = await fetch(GVIZ_URL);
-                if (!response.ok) throw new Error('Network response was not ok');
-                let text = await response.text();
-                
-                // Strip JSONP wrapper
-                const jsonTextMatch = text.match(/google\.visualization\.Query\.setResponse\((.*)\)/s);
-                if (!jsonTextMatch || !jsonTextMatch[1]) {
-                    throw new Error('Invalid JSONP response format');
-                }
-                
-                const data = JSON.parse(jsonTextMatch[1]);
-                
-                if (data.table && data.table.rows) {
-                    allUsersData = data.table.rows.map(row => ({
-                        id: row.c[0] ? row.c[0].v : null,
-                        name: row.c[1] ? row.c[1].v : null,
-                        photo: row.c[2] ? row.c[2].v : null, 
-                        gender: row.c[3] ? row.c[3].v : null,
-                        group: row.c[4] ? row.c[4].v : null,
-                        department: row.c[5] ? row.c[5].v : null,
-                    })).filter(user => user.id && user.name); // Filter out empty rows
+// ... existing code ... -->
+                    }));
+                    populateUserDropdown(allUsersData);
                     
-                    // Don't populate dropdown on load, wait for focus
-                    userSelect.placeholder = "វាយ ឬ ជ្រើសរើស...";
+                    // EDITED: Show login form AFTER data is loaded
+                    document.getElementById('data-loading-indicator').classList.add('hidden');
+                    document.getElementById('login-form-container').classList.remove('hidden');
+
                 } else {
-                     throw new Error('No data table found in response');
+                    // EDITED: Translated
+                    console.error("រកមិនឃើញទិន្នន័យអ្នកប្រើប្រាស់ក្នុង Google Sheet ទេ។");
+                    throw new Error("រកមិនឃើញទិន្នន័យអ្នកប្រើប្រាស់");
                 }
             } catch (error) {
-                console.error('Error fetching Google Sheet data:', error);
-                // Can't set innerHTML of an input, maybe set placeholder
-                userSelect.placeholder = "មិនអាចទាញទិន្នន័យបាន";
+                // EDITED: Translated (kept "Error" and "Google Sheet")
+                console.error("Error ពេលទាញយកទិន្នន័យ Google Sheet:", error);
+                // EDITED: Show error message to user
+                const loadingIndicator = document.getElementById('data-loading-indicator');
+                loadingIndicator.innerHTML = `<p class="text-red-600 font-semibold">Error: មិនអាចទាញយកទិន្នន័យបាន</p><p class="text-gray-600 text-sm mt-1">សូម Refresh ទំព័រម្ដងទៀត។</p>`;
+                loadingIndicator.classList.remove('hidden'); // Make sure it's visible
             }
         }
 
-        // This function now filters AND shows/hides the custom dropdown
-        function populateUserDropdown(filter = '') {
-            userDropdown.innerHTML = ''; // Clear old items
-            
-            const lowerFilter = filter.toLowerCase();
-            let hasMatches = false;
+        // --- Searchable Dropdown Logic ---
+        const userSearchInput = document.getElementById('user-search');
+        const userDropdown = document.getElementById('user-dropdown');
+        const userSearchError = document.getElementById('user-search-error');
+        const scanFaceBtn = document.getElementById('scan-face-btn');
 
-            allUsersData.forEach(user => {
-                const itemText = `${user.id} - ${user.name}`;
-                // Filter logic
-                if (itemText.toLowerCase().includes(lowerFilter)) {
-                    hasMatches = true;
-                    // Create a div for each item
-                    const itemDiv = document.createElement('div');
-                    itemDiv.textContent = itemText;
-                    itemDiv.className = 'p-3 hover:bg-gray-100 cursor-pointer border-b border-gray-100 last:border-b-0';
+        function populateUserDropdown(users) {
+            userDropdown.innerHTML = ''; // Clear existing
+            users.forEach(user => {
+                if (user.id && user.name) {
+                    const item = document.createElement('div');
+                    item.textContent = `${user.id} - ${user.name}`;
+                    item.dataset.value = user.id;
+                    item.className = 'px-4 py-2 hover:bg-gray-100 cursor-pointer text-sm';
                     
-                    // Add click event to select item
-                    itemDiv.addEventListener('click', () => {
-                        userSelect.value = itemText; // Set input value
-                        userDropdown.classList.add('hidden'); // Hide dropdown
+                    item.addEventListener('mousedown', (e) => {
+                        e.preventDefault(); // Prevent input blur
+                        userSearchInput.value = item.textContent;
+                        selectedUserId = item.dataset.value;
+                        userDropdown.classList.add('hidden');
+                        userSearchError.classList.add('hidden');
+                        if(scanFaceBtn) scanFaceBtn.disabled = false;
                     });
-                    
-                    userDropdown.appendChild(itemDiv);
+                    userDropdown.appendChild(item);
                 }
             });
+        }
 
-            // Show or hide dropdown based on matches
-            if (hasMatches) {
+        function filterDropdown() {
+            const filter = userSearchInput.value.toLowerCase();
+            const items = userDropdown.getElementsByTagName('div');
+            let found = false;
+            let match = false;
+            
+            for (let i = 0; i < items.length; i++) {
+                const text = items[i].textContent.toLowerCase();
+                if (text.includes(filter)) {
+                    items[i].style.display = "";
+                    found = true;
+                    if (text === filter) {
+                        match = true;
+                    }
+                } else {
+                    items[i].style.display = "none";
+                }
+            }
+            
+            if (found) {
                 userDropdown.classList.remove('hidden');
             } else {
                 userDropdown.classList.add('hidden');
             }
+            
+            // Check if selected value is valid
+            const validSelection = allUsersData.find(u => `${u.id} - ${u.name}` === userSearchInput.value);
+            if (validSelection) {
+                selectedUserId = validSelection.id;
+                userSearchError.classList.add('hidden');
+                if(scanFaceBtn) scanFaceBtn.disabled = false;
+            } else {
+                selectedUserId = null;
+                userSearchError.classList.remove('hidden');
+                if(scanFaceBtn) scanFaceBtn.disabled = true;
+            }
         }
 
-        // --- NEW Event Listeners for custom dropdown ---
-
-        // Show and populate on focus
-        userSelect.addEventListener('focus', () => {
-            populateUserDropdown(userSelect.value); // Show all or filtered
+        userSearchInput.addEventListener('input', filterDropdown);
+        userSearchInput.addEventListener('focus', () => {
+             userDropdown.classList.remove('hidden');
+             filterDropdown(); // Show all if empty
         });
-
-        // Filter on typing
-        userSelect.addEventListener('input', () => {
-            populateUserDropdown(userSelect.value);
-            userSelectError.classList.add('hidden'); // Hide error while typing
-        });
-
-        // Hide on click outside
-        window.addEventListener('click', (e) => {
-            // Hide if click is not on the input and not inside the dropdown
-            if (e.target !== userSelect && !userDropdown.contains(e.target)) {
+        // Hide on blur, but delay to allow click
+        userSearchInput.addEventListener('blur', () => {
+            setTimeout(() => {
                 userDropdown.classList.add('hidden');
-            }
-        });
-
-
-        // --- Login Logic ---
-        faceScanLoginBtn.addEventListener('click', startLoginProcess);
-        
-        async function startLoginProcess() {
-            // 1. Check if models are loaded
-            if (!modelsLoaded) {
-                modelStatus.textContent = 'សូមរង់ចាំ Model កំពុងទាញយក...';
-                return;
-            }
-
-            // 2. Validate user selection
-            const selectedValue = userSelect.value; // Get value from <input>
-            const selectedUserId = selectedValue.split(' - ')[0];
-            
-            if (!selectedUserId) {
-                userSelectError.classList.remove('hidden');
-                return;
-            }
-            userSelectError.classList.add('hidden');
-            
-            currentUser = allUsersData.find(user => user.id == selectedUserId);
-            if (!currentUser) {
-                userSelectError.textContent = 'រកមិនឃើញទិន្នន័យអ្នកប្រើប្រាស់';
-                userSelectError.classList.remove('hidden');
-                return;
-            }
-            
-            // 3. Check for reference photo
-            if (!currentUser.photo) {
-                userSelectError.textContent = 'អ្នកប្រើប្រាស់នេះ មិនមានរូបថតយោងទេ';
-                userSelectError.classList.remove('hidden');
-                return;
-            }
-
-            // 4. Show modal and start camera
-            scanModal.classList.remove('hidden');
-            scanStatus.textContent = 'កំពុងចាប់ផ្តើមកាមេរ៉ា...';
-            scanOverlay.className = 'absolute inset-0 border-4 border-blue-500 rounded-lg animate-pulse';
-            
-            try {
-                if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-                    cameraStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-                    cameraFeed.srcObject = cameraStream;
-                    
-                    // Wait for camera to be ready
-                    cameraFeed.onloadedmetadata = () => {
-                        scanStatus.textContent = 'សូមដាក់មុខឲ្យចំ...';
-                        // Start the actual face recognition
-                        startFaceRecognition();
-                    }
+                // Validate final input
+                const validSelection = allUsersData.find(u => `${u.id} - ${u.name}` === userSearchInput.value);
+                if (validSelection) {
+                    selectedUserId = validSelection.id;
+                    userSearchError.classList.add('hidden');
+                    if(scanFaceBtn) scanFaceBtn.disabled = false;
+                } else if (userSearchInput.value === '') {
+                    selectedUserId = null;
+                    userSearchError.classList.add('hidden');
+                    if(scanFaceBtn) scanFaceBtn.disabled = true;
                 } else {
-                    throw new Error('Camera API not supported');
+                    selectedUserId = null;
+                    userSearchError.classList.remove('hidden');
+                    if(scanFaceBtn) scanFaceBtn.disabled = true;
                 }
-            } catch (err) {
-                console.error('Camera error:', err);
-                scanStatus.textContent = 'មិនអាចបើកកាមេរ៉ាបាន!';
-                // Hide modal after 2 seconds on error
-                setTimeout(() => {
-                    cancelScan(); // Use cancel function to clean up
-                }, 2000);
-            }
-        }
-
-        // ===== NEW: Face Recognition Logic =====
-
-        async function startFaceRecognition() {
-            let referenceDescriptor;
-
-            // 1. Load reference image and create descriptor
-            try {
-                scanStatus.textContent = 'កំពុងវិភាគរូបថតយោង...';
-                // Use faceapi.fetchImage to handle potential CORS issues
-                const referenceImage = await faceapi.fetchImage(currentUser.photo);
-                referenceDescriptor = await faceapi.detectSingleFace(referenceImage, new faceapi.TinyFaceDetectorOptions())
-                    .withFaceLandmarks(true)
-                    .withFaceDescriptor();
-                
-                if (!referenceDescriptor) {
-                    throw new Error('No face found in reference photo.');
-                }
-            } catch (err) {
-                console.error('Error loading reference image:', err);
-                scanStatus.textContent = 'Error: មិនអាចផ្ទុក/វិភាគរូបថតយោងបាន។';
-                scanOverlay.className = 'absolute inset-0 border-4 border-red-500 rounded-lg';
-                setTimeout(cancelScan, 3000);
-                return;
-            }
-            
-            // 2. Create Face Matcher
-            const faceMatcher = new faceapi.FaceMatcher(referenceDescriptor, 0.5); // 0.5 = 50% distance threshold
-            scanStatus.textContent = 'សូមដាក់មុខឲ្យចំ...';
-
-            // 3. Start recognition interval
-            faceScanInterval = setInterval(async () => {
-                if (!cameraStream) return; // Stop if camera was cancelled
-                
-                try {
-                    const detections = await faceapi.detectAllFaces(cameraFeed, new faceapi.TinyFaceDetectorOptions())
-                        .withFaceLandmarks(true)
-                        .withFaceDescriptors();
-
-                    if (detections.length > 0) {
-                        // Find the best match from the detected faces
-                        const bestMatch = faceMatcher.findBestMatch(detections[0].descriptor);
-                        
-                        if (bestMatch.label === 'person 1' && bestMatch.distance < 0.5) {
-                            // MATCH FOUND!
-                            scanStatus.textContent = 'ផ្ទៀងផ្ទាត់ជោគជ័យ!';
-                            scanOverlay.className = 'absolute inset-0 border-4 border-green-500 rounded-lg';
-                            clearInterval(faceScanInterval);
-                            faceScanInterval = null;
-                            setTimeout(completeLogin, 1000); // Wait 1 sec before closing
-                        } else {
-                            // No match
-                            scanStatus.textContent = 'មិនស្គាល់មុខ... សូមព្យាយាមម្ដងទៀត។';
-                            scanOverlay.className = 'absolute inset-0 border-4 border-red-500 rounded-lg';
-                        }
-                    } else {
-                        // No face detected
-                        scanStatus.textContent = 'រកមិនឃើញមុខ... សូមដាក់មុខឲ្យចំ។';
-                        scanOverlay.className = 'absolute inset-0 border-4 border-blue-500 rounded-lg animate-pulse';
-                    }
-                } catch (err) {
-                    console.error('Error during detection interval:', err);
-                    scanStatus.textContent = 'មានបញ្ហាពេលកំពុងវិភាគ...';
-                }
-            }, 700); // Check every 700ms
-        }
-        
-        // ======================================
-
-        function completeLogin() {
-            // Stop camera and interval
-            stopScan();
-            
-            // Hide modal
-            scanModal.classList.add('hidden');
-
-            // Populate account page
-            populateAccountPage();
-
-            // Show main app
-            pageLogin.classList.add('hidden');
-            mainAppContainer.classList.remove('hidden');
-            showPage('home'); // Go to home page
-        }
-
-        function populateAccountPage() {
-            if (!currentUser) return;
-            
-            const accountPhoto = document.getElementById('account-photo');
-            accountPhoto.src = currentUser.photo || 'https://placehold.co/100x100/EBF8FF/3182CE?text=User';
-            // Handle potential errors on photo load
-            accountPhoto.onerror = function() {
-                this.src = 'https://placehold.co/100x100/EBF8FF/3182CE?text=User';
-            };
-            
-            document.getElementById('account-name').textContent = currentUser.name || 'N/A';
-            document.getElementById('account-department').textContent = currentUser.department || 'N/A';
-            document.getElementById('account-id').textContent = currentUser.id || 'N/A';
-            document.getElementById('account-group').textContent = currentUser.group || 'N/A';
-            document.getElementById('account-gender').textContent = currentUser.gender || 'N/A';
-        }
-
-        // --- NEW: Refactored cleanup functions ---
-        function stopScan() {
-             // Stop recognition interval
-            if (faceScanInterval) {
-                clearInterval(faceScanInterval);
-                faceScanInterval = null;
-            }
-            // Stop camera
-            if (cameraStream) {
-                cameraStream.getTracks().forEach(track => track.stop());
-                cameraStream = null;
-                cameraFeed.srcObject = null;
-            }
-        }
-        
-        function cancelScan() {
-            stopScan();
-            scanModal.classList.add('hidden');
-        }
-
-        // --- Cancel Scan ---
-        cancelScanBtn.addEventListener('click', cancelScan);
-
-        // --- Logout Logic ---
-        logoutButton.addEventListener('click', () => {
-            currentUser = null;
-            mainAppContainer.classList.add('hidden');
-            pageLogin.classList.remove('hidden');
-            userSelect.value = ''; // Reset input field
-            // Ensure home is not active when logged out
-            showPage('home'); // This will hide all pages
-            pages.home.classList.add('hidden'); // Explicitly hide home
+            }, 200); // 200ms delay
         });
 
-        // --- NEW: Load Face-API Models on Startup ---
+        // --- Face Scan Logic ---
+        const modelStatusEl = document.getElementById('model-status');
+        const faceScanModal = document.getElementById('face-scan-modal');
+        const video = document.getElementById('video');
+        const scanStatusEl = document.getElementById('scan-status');
+        const scanDebugEl = document.getElementById('scan-debug');
+        const cancelScanBtn = document.getElementById('cancel-scan-btn');
+
         async function loadFaceApiModels() {
-            // Use tiny models for faster mobile performance
-            // FIX: The path should be 'weights' not 'models' for this CDN version
-            const MODEL_URL = 'https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@0.22.2/weights';
+            if (!modelStatusEl) return;
             try {
-                modelStatus.textContent = 'កំពុងទាញយក Model...';
-                await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
-                await faceapi.nets.faceLandmark68TinyNet.loadFromUri(MODEL_URL);
-                await faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL);
-                modelsLoaded = true;
-                modelStatus.textContent = 'Model បានត្រៀមរួចរាល់';
-                console.log('Face-API models loaded');
-            } catch (err) {
-                console.error('Error loading face-api models:', err);
-                modelStatus.textContent = 'Error: មិនអាចទាញយក Model បាន';
-            }
-        }
-
-
-        // Set the default page to 'home' when the app loads
-        document.addEventListener('DOMContentLoaded', () => {
-
-            // --- NEW: In-App Browser Detection ---
-            function isClient() {
-                const ua = navigator.userAgent || navigator.vendor || window.opera;
-                return (
-                    (ua.indexOf('FBAN') > -1) ||
-                    (ua.indexOf('FBAV') > -1) ||
-                    (ua.indexOf('Twitter') > -1) ||
-                    (ua.indexOf('Telegram') > -1) ||
-                    (ua.indexOf('WebView') > -1) ||
-                    (ua.indexOf('wv') > -1)
-                );
-            }
-
+                // EDITED: Updated text
+                modelStatusEl.textContent = 'កំពុងទាញយក Model ស្កេនមុខ...';
+                await Promise.all([
+                    faceapi.nets.tinyFaceDetector.loadFromUri('https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@0.22.2/weights'),
+// ... existing code ... -->
+                    faceapi.nets.faceRecognitionNet.loadFromUri('https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@0.22.2/weights'),
+                ]);
+                modelStatusEl.textContent = 'Model ស្កេនមុខបានទាញយករួចរាល់';
+                if(scanFaceBtn) scanFaceBtn.disabled = (selectedUserId === null); // Enable if user is selected
+            } catch (error) {
+// ... existing code ... -->
             const loginFormContainer = document.getElementById('login-form-container');
             const inAppWarning = document.getElementById('in-app-warning');
             const modelStatusEl = document.getElementById('model-status');
+            // EDITED: Get loading indicator
+            const dataLoadingIndicator = document.getElementById('data-loading-indicator');
 
             if (isClient()) {
                 // It's an in-app browser
-                if (loginFormContainer) loginFormContainer.classList.add('hidden');
+-               if (loginFormContainer) loginFormContainer.classList.add('hidden');
++               // if (loginFormContainer) loginFormContainer.classList.add('hidden'); // Already hidden by default
                 if (inAppWarning) inAppWarning.classList.remove('hidden');
                 
                 // We can't use the camera, so don't load models
                 if(modelStatusEl) modelStatusEl.textContent = 'សូមបើកក្នុង Browser ពេញលេញ';
+                // Don't show data loader if warning is shown
+                if (dataLoadingIndicator) dataLoadingIndicator.classList.add('hidden');
+
 
             } else {
                 // It's a full browser, load everything normally
-                if (loginFormContainer) loginFormContainer.classList.remove('hidden');
+-               if (loginFormContainer) loginFormContainer.classList.remove('hidden');
++               // if (loginFormContainer) loginFormContainer.classList.add('hidden'); // Already hidden by default
                 if (inAppWarning) inAppWarning.classList.add('hidden');
+                // EDITED: Show loading indicator first
+                if (dataLoadingIndicator) dataLoadingIndicator.classList.remove('hidden');
                 
                 // Start by fetching users for the login page
                 fetchUsers();
-                
-                // Load face-api models
-                if (typeof faceapi !== 'undefined') {
-                    loadFaceApiModels();
-                } else {
-                    console.error("Face-API.js did not load correctly.");
-                    if(modelStatusEl) modelStatusEl.textContent = 'Error: មិនអាចទាញយក Library ស្កេនមុខបាន';
-                }
-            }
-        });
-    </script>
-
-</body>
-</html>
+// ... existing code ... -->
 
