@@ -119,74 +119,6 @@
             <p id="model-status" class="text-xs text-gray-500 text-center mt-2"></p>
         </div>
     </div>
-<body class="bg-gray-100">
-
-    <!-- ===== LOGIN PAGE ===== -->
-    <div id="page-login" class="max-w-md mx-auto min-h-screen flex flex-col justify-center items-center p-6 bg-gray-50">
-        <!-- Logo and Title -->
-        <img src="https://i.postimg.cc/FHBn0Fdf/di3-copy.png" alt="Logo" class="h-20 w-20 mb-4">
-        <h1 class="text-2xl font-bold text-blue-800 mb-2">ឧស្សាហកម្មឌីជីថល</h1>
-        <p class="text-gray-600 mb-8">សូមចូលប្រើកម្មវិធីសុំច្បាប់</p>
-
-        <!-- NEW: In-App Browser Warning -->
-        <div id="in-app-warning" class="w-full max-w-sm p-4 bg-yellow-100 border border-yellow-300 rounded-lg text-yellow-800 text-sm text-left hidden">
-            <p class="font-bold text-base mb-2">បញ្ហាកាមេរ៉ា!</p>
-            <p>កម្មវិធីនេះ ត្រូវការបើកកាមេរ៉ា ដែលមិនអាចដំណើរការក្នុង Telegram/Facebook បានទេ។</p>
-            <p class="font-semibold mt-3">ដំណោះស្រាយ៖</p>
-            <ol class="list-decimal list-inside mt-1">
-                <li>នៅខាងលើស្តាំ, ចុចសញ្ញា <span class="font-bold">...</span></li>
-                <li>ជ្រើសរើស "Open in Browser" (បើកក្នុង Browser)</li>
-            </ol>
-            <p class="mt-2">បន្ទាប់មក កម្មវិធីនឹងបើកក្នុង Chrome/Safari ហើយកាមេរ៉ានឹងដំណើរការ។</p>
-        </div>
-
-        <!-- NEW: Data Loading Indicator -->
-        <div id="data-loading-indicator" class="w-full max-w-sm p-6 bg-white rounded-lg shadow-md border border-gray-200 flex flex-col items-center justify-center hidden">
-            <div class="spinner mb-4"></div>
-            <p class="text-gray-600 font-medium">កំពុងទាញយកទិន្នន័យបុគ្គលិក...</p>
-            <p class="text-xs text-gray-400 mt-1">សូមរង់ចាំបន្តិច</p>
-        </div>
-
-        <!-- Form (will be hidden by default now, and shown by JS) -->
-        <div id="login-form-container" class="w-full bg-white p-6 rounded-lg shadow-md border border-gray-200 hidden">
-            <!-- Searchable Dropdown -->
-            <label for="user-search" class="block text-sm font-medium text-gray-700 mb-2">ជ្រើសរើសអត្តលេខ (ID)</label>
-            <div class="relative">
-                <input
-                    type="text"
-                    id="user-search"
-                    placeholder="វាយ ឬ ជ្រើសរើស..."
-                    class="w-full px-4 py-3 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    autocomplete="off"
-                >
-                <!-- Custom Dropdown List -->
-                <div
-                    id="user-dropdown"
-                    class="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto hidden"
-                >
-                    <!-- User items will be injected here by JS -->
-                </div>
-            </div>
-            
-            <p id="user-search-error" class="text-red-500 text-sm mt-1 hidden">សូមជ្រើសរើសអត្តលេខឲ្យបានត្រឹមត្រូវ</p>
-
-            <!-- Remember Me Checkbox -->
-            <div class="flex items-center mt-4">
-                <input id="remember-me" name="remember-me" type="checkbox" class="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500">
-                <!-- EDITED: Changed "trên" to "នៅលើ" -->
-                <label for="remember-me" class="ml-2 block text-sm text-gray-700">ចងចាំខ្ញុំនៅលើ Device នេះ</label>
-            </div>
-
-            <!-- Login Button -->
-            <button id="scan-face-btn" class="mt-6 w-full bg-blue-600 text-white py-3 px-4 rounded-lg font-semibold shadow-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-all duration-150 flex items-center justify-center space-x-2 disabled:opacity-50">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                    <path fill-rule="evenodd" d="M4 2a2 2 0 00-2 2v12a2 2 0 002 2h12a2 2 0 002-2V4a2 2 0 00-2-2H4zm11 11H5V5h10v8zm-5 2a3 3 0 100-6 3 3 0 000 6z" clip-rule="evenodd" />
-                </svg>
-                <span>ចូលដោយស្កេនផ្ទៃមុខ</span>
-            </button>
-            <p id="model-status" class="text-xs text-gray-500 text-center mt-2"></p>
-        </div>
-    </div>
 
     <!-- ===== Face Scan Modal ===== -->
     <div id="face-scan-modal" class="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-70 hidden">
@@ -400,7 +332,19 @@
 
         async function fetchUsers() {
             try {
-// ... existing code ... -->
+                const response = await fetch(GVIZ_URL);
+                const text = await response.text();
+                // Extract JSON from the gviz response
+                const json = JSON.parse(text.match(/google\.visualization\.Query\.setResponse\((.*)\);/s)[1]);
+                
+                if (json.table.rows.length > 0) {
+                    allUsersData = json.table.rows.map(row => ({
+                        id: row.c[0] ? row.c[0].v : null,
+                        name: row.c[1] ? row.c[1].v : null,
+                        photo: row.c[2] ? row.c[2].v : null,
+                        gender: row.c[3] ? row.c[3].v : null,
+                        group: row.c[4] ? row.c[4].v : null,
+                        department: row.c[5] ? row.c[5].v : null,
                     }));
                     populateUserDropdown(allUsersData);
                     
@@ -531,13 +475,271 @@
                 modelStatusEl.textContent = 'កំពុងទាញយក Model ស្កេនមុខ...';
                 await Promise.all([
                     faceapi.nets.tinyFaceDetector.loadFromUri('https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@0.22.2/weights'),
-// ... existing code ... -->
+                    faceapi.nets.faceLandmark68TinyNet.loadFromUri('https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@0.22.2/weights'),
                     faceapi.nets.faceRecognitionNet.loadFromUri('https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@0.22.2/weights'),
                 ]);
                 modelStatusEl.textContent = 'Model ស្កេនមុខបានទាញយករួចរាល់';
                 if(scanFaceBtn) scanFaceBtn.disabled = (selectedUserId === null); // Enable if user is selected
             } catch (error) {
-// ... existing code ... -->
+                // EDITED: Translated (kept "Error" and "Model")
+                console.error("Error ពេលទាញយក Model របស់ face-api:", error);
+                modelStatusEl.textContent = 'Error: មិនអាចទាញយក Model បាន';
+            }
+        }
+
+        async function startFaceScan() {
+            if (!selectedUserId) {
+                alert("សូមជ្រើសរើសអត្តលេខរបស់អ្នកជាមុនសិន");
+                return;
+            }
+            
+            const user = allUsersData.find(u => u.id === selectedUserId);
+            if (!user || !user.photo) {
+                alert("មិនអាចទាញយករូបថតយោងរបស់អ្នកបានទេ សូមទាក់ទង IT");
+                return;
+            }
+
+            faceScanModal.classList.remove('hidden');
+            scanStatusEl.textContent = 'កំពុងព្យាយាមបើកកាមេរ៉ា...';
+
+            try {
+                // 1. Get Reference Descriptor from User's Photo
+                scanStatusEl.textContent = 'កំពុងទាញយករូបថតយោង...';
+                // Use Google proxy to avoid CORS issues
+                const proxyUrl = `https://images1-focus-opensocial.googleusercontent.com/gadgets/proxy?container=focus&resize_w=300&url=${encodeURIComponent(user.photo)}`;
+                const referenceImage = await faceapi.fetchImage(proxyUrl);
+                
+                scanStatusEl.textContent = 'កំពុងវិភាគរូបថតយោង...';
+                const referenceDescriptor = await faceapi.computeFaceDescriptor(referenceImage);
+                if (!referenceDescriptor) {
+                    throw new Error('មិនអាចវិភាគមុខពីរូបថតយោងបានទេ');
+                }
+
+                // 2. Start Video Stream
+                const stream = await navigator.mediaDevices.getUserMedia({ video: {} });
+                video.srcObject = stream;
+
+                scanStatusEl.textContent = 'សូមដាក់មុខរបស់អ្នកឲ្យចំកាមេរ៉ា';
+
+                // 3. Start scanning video feed
+                faceScanInterval = setInterval(async () => {
+                    const detections = await faceapi.detectSingleFace(video, new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks(true).withFaceDescriptor();
+                    
+                    if (detections) {
+                        scanStatusEl.textContent = 'រកឃើញផ្ទៃមុខ! កំពុងផ្ទៀងផ្ទាត់...';
+                        
+                        // 4. Compare descriptors
+                        const distance = faceapi.euclideanDistance(referenceDescriptor, detections.descriptor);
+                        const similarity = (1 - distance).toFixed(2);
+                        scanDebugEl.textContent = `ភាពស្រដៀងគ្នា: ${similarity} (ត្រូវតែ > 0.40)`;
+
+                        // We use a threshold of 0.40 (60% similar). Lower is stricter.
+                        if (distance < 0.40) { 
+                            scanStatusEl.textContent = 'ផ្ទៀងផ្ទាត់ជោគជ័យ!';
+                            stopFaceScan();
+                            loginUser(selectedUserId);
+                        } else {
+                            scanStatusEl.textContent = 'មុខមិនត្រឹមត្រូវ... សូមព្យាយាមម្តងទៀត';
+                        }
+                    } else {
+                        scanStatusEl.textContent = 'រកមិនឃើញផ្ទៃមុខ...';
+                        scanDebugEl.textContent = '';
+                    }
+                }, 500); // Scan every 500ms
+
+            } catch (error) {
+                // EDITED: Translated (kept "Error")
+                console.error("Error ពេលស្កេនមុខ:", error);
+                scanStatusEl.textContent = `Error: ${error.message}`;
+                stopFaceScan();
+                setTimeout(() => { 
+                    faceScanModal.classList.add('hidden'); 
+                    alert(`មានបញ្ហាពេលស្កេនមុខ៖ ${error.message}។ សូមប្រាកដថាអ្នកបើកកាមេរ៉ា និងសាកល្បងម្ដងទៀត។`);
+                }, 2000);
+            }
+        }
+
+        function stopFaceScan() {
+            if (faceScanInterval) {
+                clearInterval(faceScanInterval);
+                faceScanInterval = null;
+            }
+            if (video.srcObject) {
+                video.srcObject.getTracks().forEach(track => track.stop());
+                video.srcObject = null;
+            }
+        }
+
+        if(scanFaceBtn) scanFaceBtn.addEventListener('click', startFaceScan);
+        if(cancelScanBtn) cancelScanBtn.addEventListener('click', () => {
+            stopFaceScan();
+            faceScanModal.classList.add('hidden');
+        });
+
+        // --- App Navigation & State Logic ---
+
+        function loginUser(userId) {
+            const user = allUsersData.find(u => u.id === userId);
+            if (!user) return;
+
+            // Remember Me Logic
+            const rememberMeCheckbox = document.getElementById('remember-me');
+            if (rememberMeCheckbox && rememberMeCheckbox.checked) {
+                localStorage.setItem('leaveAppUser', JSON.stringify(user));
+            }
+            
+            showLoggedInState(user);
+        }
+        
+        function logout() {
+            currentUser = null;
+            localStorage.removeItem('leaveAppUser'); // Clear remembered user
+
+            const loginPage = document.getElementById('page-login');
+            const mainApp = document.getElementById('main-app-container');
+            const nav = document.getElementById('bottom-navigation');
+
+            if (loginPage) loginPage.classList.remove('hidden');
+            if (mainApp) mainApp.classList.add('hidden');
+            if (nav) nav.classList.add('hidden');
+            
+            // Reset account page
+            document.getElementById('user-photo').src = 'https://placehold.co/100x100/e2e8f0/64748b?text=User';
+            document.getElementById('user-name').textContent = '...';
+            document.getElementById('user-id').textContent = '...';
+            document.getElementById('user-gender').textContent = '...';
+            document.getElementById('user-group').textContent = '...';
+            document.getElementById('user-department').textContent = '...';
+            
+            // Reset login form
+            userSearchInput.value = '';
+            selectedUserId = null;
+            if(scanFaceBtn) scanFaceBtn.disabled = true;
+            document.getElementById('remember-me').checked = false;
+        }
+        
+        function showLoggedInState(user) {
+            currentUser = user;
+            populateAccountPage(user);
+            
+            // Populate Home page
+            document.getElementById('home-user-name').textContent = user.name || '...';
+
+            const loginPage = document.getElementById('page-login');
+            const mainApp = document.getElementById('main-app-container');
+            const nav = document.getElementById('bottom-navigation');
+
+            if (loginPage) loginPage.classList.add('hidden');
+            if (mainApp) mainApp.classList.remove('hidden');
+            if (nav) nav.classList.remove('hidden');
+
+            navigateTo('page-home');
+        }
+        
+        function populateAccountPage(user) {
+            const userPhotoEl = document.getElementById('user-photo');
+            if (userPhotoEl && user.photo) {
+                // Use Google proxy to avoid CORS issues
+                userPhotoEl.src = `https://images1-focus-opensocial.googleusercontent.com/gadgets/proxy?container=focus&resize_w=300&url=${encodeURIComponent(user.photo)}`;
+                userPhotoEl.onerror = () => { 
+                    // EDITED: Translated placeholder text
+                    userPhotoEl.src = 'https://placehold.co/100x100/e2e8f0/64748b?text=គ្មានរូប';
+                };
+            } else if (userPhotoEl) {
+                userPhotoEl.src = 'https://placehold.co/100x100/e2e8f0/64748b?text=User';
+            }
+            
+            // EDITED: Translated "N/A" to "មិនមាន"
+            document.getElementById('user-name').textContent = user.name || 'មិនមាន';
+            document.getElementById('user-id').textContent = user.id || 'មិនមាន';
+            document.getElementById('user-gender').textContent = user.gender || 'មិនមាន';
+            document.getElementById('user-group').textContent = user.group || 'មិនមាន';
+            document.getElementById('user-department').textContent = user.department || 'មិនមាន';
+        }
+        
+        document.getElementById('logout-btn').addEventListener('click', logout);
+        
+        // --- Bottom Navigation Logic ---
+        const navButtons = document.querySelectorAll('.nav-btn');
+        const pages = ['page-home', 'page-account', 'page-help'];
+
+        function navigateTo(pageId) {
+            // Hide all pages
+            pages.forEach(page => {
+                const pageEl = document.getElementById(page);
+                if (pageEl) {
+                    pageEl.classList.add('hidden');
+                }
+            });
+            
+            // Show target page
+            const targetPage = document.getElementById(pageId);
+            if (targetPage) {
+                targetPage.classList.remove('hidden');
+            }
+            
+            // Update nav button styles
+            navButtons.forEach(btn => {
+                if (btn.dataset.page === pageId) {
+                    btn.classList.add('text-blue-600');
+                    btn.classList.remove('text-gray-500');
+                } else {
+                    btn.classList.add('text-gray-500');
+                    btn.classList.remove('text-blue-600');
+                }
+            });
+            
+            // Scroll to top
+            document.getElementById('main-content').scrollTop = 0;
+        }
+
+        navButtons.forEach(button => {
+            button.addEventListener('click', () => {
+                navigateTo(button.dataset.page);
+            });
+        });
+
+        // --- App Initialization ---
+        document.addEventListener('DOMContentLoaded', () => {
+            
+            // --- Check for Remembered User ---
+            const rememberedUser = localStorage.getItem('leaveAppUser');
+            if (rememberedUser) {
+                try {
+                    const user = JSON.parse(rememberedUser);
+                    // *** FIX: Validate user object before proceeding ***
+                    if (user && user.id) { 
+                        currentUser = user; // Set current user
+                        showLoggedInState(user); // Go straight to app
+                        
+                        // We still need to fetch user data for the dropdown,
+                        // in case the user logs out.
+                        fetchUsers(); 
+                        return; // Stop further execution of login page setup
+                    } else {
+                        // EDITED: Translated (kept "localStorage")
+                        throw new Error("ទិន្នន័យអ្នកប្រើប្រាស់ក្នុង localStorage មិនត្រឹមត្រូវ");
+                    }
+                } catch (e) {
+                    // EDITED: Translated
+                    console.error('បរាជ័យក្នុងការអានទិន្នន័យអ្នកប្រើប្រាស់:', e);
+                    localStorage.removeItem('leaveAppUser'); // Clear corrupted data
+                }
+            }
+
+            // --- In-App Browser Detection ---
+            function isClient() {
+                const ua = navigator.userAgent || navigator.vendor || window.opera;
+                return (
+                    (ua.indexOf('FBAN') > -1) ||
+                    (ua.indexOf('FBAV') > -1) ||
+                    (ua.indexOf('Twitter') > -1) ||
+                    (ua.indexOf('Telegram') > -1) ||
+                    (ua.indexOf('WebView') > -1) ||
+                    (ua.indexOf('wv') > -1)
+                );
+            }
+
             const loginFormContainer = document.getElementById('login-form-container');
             const inAppWarning = document.getElementById('in-app-warning');
             const modelStatusEl = document.getElementById('model-status');
@@ -546,8 +748,7 @@
 
             if (isClient()) {
                 // It's an in-app browser
--               if (loginFormContainer) loginFormContainer.classList.add('hidden');
-+               // if (loginFormContainer) loginFormContainer.classList.add('hidden'); // Already hidden by default
+                // if (loginFormContainer) loginFormContainer.classList.add('hidden'); // Already hidden by default
                 if (inAppWarning) inAppWarning.classList.remove('hidden');
                 
                 // We can't use the camera, so don't load models
@@ -558,13 +759,26 @@
 
             } else {
                 // It's a full browser, load everything normally
--               if (loginFormContainer) loginFormContainer.classList.remove('hidden');
-+               // if (loginFormContainer) loginFormContainer.classList.add('hidden'); // Already hidden by default
+                // if (loginFormContainer) loginFormContainer.classList.add('hidden'); // Already hidden by default
                 if (inAppWarning) inAppWarning.classList.add('hidden');
                 // EDITED: Show loading indicator first
                 if (dataLoadingIndicator) dataLoadingIndicator.classList.remove('hidden');
                 
                 // Start by fetching users for the login page
                 fetchUsers();
-// ... existing code ... -->
+                
+                // Load face-api models
+                if (typeof faceapi !== 'undefined') {
+                    if (scanFaceBtn) scanFaceBtn.disabled = true; // Disable until models load and user selected
+                    loadFaceApiModels();
+                } else {
+                    // EDITED: Translated (kept "Face-API.js")
+                    console.error("Face-API.js មិនអាចទាញយកបានត្រឹមត្រូវទេ។");
+                    if(modelStatusEl) modelStatusEl.textContent = 'Error: មិនអាចទាញយក Library ស្កេនមុខបាន';
+                }
+            }
+        });
+    </script>
+</body>
+</html>
 
