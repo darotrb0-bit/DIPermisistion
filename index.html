@@ -19,7 +19,6 @@
         import { 
             getAuth, 
             signInAnonymously, 
-            // EDITED: Removed signInWithCustomToken as we are switching to Anonymous
             onAuthStateChanged 
         } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { 
@@ -30,8 +29,12 @@
             query, 
             where, 
             onSnapshot, 
-            serverTimestamp
+            serverTimestamp,
+            setLogLevel // Import setLogLevel for debugging
         } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Enable Firestore debug logging
+        setLogLevel('debug'); 
 
         // --- Hard-coded Firebase Config ---
         const firebaseConfig = {
@@ -46,7 +49,7 @@
         // --- End of Hard-coded Config ---
 
         // --- Global State & Element References ---
-        let db, auth, appId, userId;
+        let db, auth, userId; // Removed appId as it's less used now
         let historyUnsubscribe = null; 
         let allUsersData = []; 
         let currentUser = null; 
@@ -83,6 +86,7 @@
         document.addEventListener('DOMContentLoaded', async () => {
             
             // --- Assign Element References ---
+            // (Assigning elements remains the same)
             userSearchInput = document.getElementById('user-search');
             userDropdown = document.getElementById('user-dropdown');
             userSearchError = document.getElementById('user-search-error');
@@ -139,12 +143,14 @@
                 
                 // Get Canvas appId (still needed for Firestore path)
                 const canvasAppId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+                // Define the correct Firestore path using the canvasAppId
                 leaveRequestsCollectionPath = `/artifacts/${canvasAppId}/public/data/leave_requests`;
+                console.log("Using Firestore Path:", leaveRequestsCollectionPath); // Log the path
 
                 // --- Firebase Authentication ---
                 onAuthStateChanged(auth, (user) => {
                     if (user) {
-                        console.log("Firebase Auth state changed. User ID:", user.uid);
+                        console.log("Firebase Auth state changed. User is authenticated. UID:", user.uid);
                         userId = user.uid; // Set global userId (Firebase Auth UID)
 
                         // Check for Remembered User (localStorage)
@@ -153,6 +159,7 @@
                             try {
                                 const parsedUser = JSON.parse(rememberedUser);
                                 if (parsedUser && parsedUser.id) { 
+                                    console.log("Found remembered user:", parsedUser.id);
                                     currentUser = parsedUser; // Set current user
                                     showLoggedInState(parsedUser); // Go straight to app
                                     fetchUsers(); // Fetch in background for any updates
@@ -166,30 +173,39 @@
                             }
                         }
                         // If no valid remembered user, start normal flow
+                        console.log("No remembered user found, starting normal app flow.");
                         initializeAppFlow();
                     } else {
-                        console.log("Firebase Auth: No user signed in.");
-                        logout(); // Ensure user is logged out
+                        console.log("Firebase Auth: No user signed in. Attempting anonymous sign-in...");
+                        // If not signed in, attempt anonymous sign-in again (might happen on initial load)
+                        signInAnonymously(auth).catch(anonError => {
+                             console.error("Error during automatic anonymous sign-in attempt:", anonError);
+                             if (criticalErrorDisplay) {
+                                 criticalErrorDisplay.classList.remove('hidden');
+                                 criticalErrorDisplay.textContent = `Critical Error: មិនអាច Sign In បានទេ។ ${anonError.message}។ សូម Refresh ម្ដងទៀត។`;
+                             }
+                        });
+                        // Don't call logout() here, let onAuthStateChanged handle the new state
                     }
                 });
 
-                // --- EDITED: Switched to Anonymous Sign-In ---
-                // We no longer use Custom Token, as per user's setup
+                // --- Initial Anonymous Sign-In ---
+                // We attempt sign-in here, and onAuthStateChanged will handle the result
                 try {
+                    console.log("Attempting initial Anonymous Sign-In...");
                     await signInAnonymously(auth);
-                    console.log("Firebase Auth: Signed in Anonymously.");
+                    console.log("Firebase Auth: Initial Anonymous Sign-In successful (or already signed in).");
                 } catch (anonError) {
-                    console.error("Anonymous Sign-In Error:", anonError);
-                    // This error will happen if "Anonymous" is not enabled in Firebase Console
+                    console.error("Initial Anonymous Sign-In Error:", anonError);
                     if (anonError.code === 'auth/operation-not-allowed') {
                         throw new Error("សូមបើក 'Anonymous' sign-in នៅក្នុង Firebase Console (Authentication > Sign-in method)។");
                     }
-                    throw anonError;
+                    // Handle other potential errors during initial sign-in
+                    throw new Error(`Firebase Sign-In Error: ${anonError.message}`);
                 }
-                // --- End of Edit ---
 
             } catch (e) {
-                console.error("Firebase Initialization Error:", e);
+                console.error("Firebase Initialization/Auth Error:", e);
                 // Show critical error message to user
                 if(criticalErrorDisplay) {
                     criticalErrorDisplay.classList.remove('hidden');
@@ -198,8 +214,9 @@
                 if(loginPage) loginPage.classList.add('hidden'); // Hide login form
             }
 
-            // --- Main App Logic (to be called after auth) ---
+            // --- Main App Logic (to be called after auth is confirmed) ---
             function initializeAppFlow() {
+                console.log("initializeAppFlow called."); // Log entry
                 function isClient() {
                     const ua = navigator.userAgent || navigator.vendor || window.opera;
                     return (
@@ -210,11 +227,13 @@
                 }
 
                 if (isClient()) {
+                    console.log("Detected In-App Browser.");
                     // It's an in-app browser
                     if (inAppWarning) inAppWarning.classList.remove('hidden');
                     if (modelStatusEl) modelStatusEl.textContent = 'សូមបើកក្នុង Browser ពេញលេញ';
                     if (dataLoadingIndicator) dataLoadingIndicator.classList.add('hidden');
                 } else {
+                    console.log("Detected Full Browser.");
                     // It's a full browser
                     if (inAppWarning) inAppWarning.classList.add('hidden');
                     if (dataLoadingIndicator) dataLoadingIndicator.classList.remove('hidden');
@@ -235,23 +254,34 @@
             
             // --- Google Sheet Data Fetching ---
             async function fetchUsers() {
+                console.log("Fetching users from Google Sheet...");
                 try {
                     const response = await fetch(GVIZ_URL);
+                    if (!response.ok) {
+                        throw new Error(`Google Sheet fetch failed with status: ${response.status}`);
+                    }
                     const text = await response.text();
-                    const json = JSON.parse(text.match(/google\.visualization\.Query\.setResponse\((.*)\);/s)[1]);
+                    // Robust parsing for Google Sheet JSON response
+                    const match = text.match(/google\.visualization\.Query\.setResponse\((.*)\);/s);
+                     if (!match || !match[1]) {
+                        throw new Error("ទម្រង់ការឆ្លើយតបពី Google Sheet មិនត្រឹមត្រូវ");
+                    }
+                    const json = JSON.parse(match[1]);
                     
-                    if (json.table.rows.length > 0) {
+                    if (json.table && json.table.rows && json.table.rows.length > 0) {
                         allUsersData = json.table.rows.map(row => ({
-                            id: row.c[0] ? row.c[0].v : null,
-                            name: row.c[1] ? row.c[1].v : null,
-                            photo: row.c[2] ? row.c[2].v : null,
-                            gender: row.c[3] ? row.c[3].v : null,
-                            group: row.c[4] ? row.c[4].v : null,
-                            department: row.c[5] ? row.c[5].v : null,
+                            id: row.c && row.c[0] ? row.c[0].v : null, // Check if row.c exists
+                            name: row.c && row.c[1] ? row.c[1].v : null,
+                            photo: row.c && row.c[2] ? row.c[2].v : null,
+                            gender: row.c && row.c[3] ? row.c[3].v : null,
+                            group: row.c && row.c[4] ? row.c[4].v : null,
+                            department: row.c && row.c[5] ? row.c[5].v : null,
                         }));
+                        console.log(`Fetched ${allUsersData.length} users.`);
                         populateUserDropdown(allUsersData, 'user-search', 'user-dropdown', (id) => {
                             selectedUserId = id;
-                            if (scanFaceBtn) scanFaceBtn.disabled = (id === null);
+                            if (scanFaceBtn) scanFaceBtn.disabled = (id === null || !modelStatusEl || modelStatusEl.textContent !== 'Model ស្កេនមុខបានទាញយករួចរាល់'); // Also check if models are ready
+                            console.log("Selected User ID:", selectedUserId);
                         });
                         
                         if (dataLoadingIndicator) dataLoadingIndicator.classList.add('hidden');
@@ -264,23 +294,32 @@
                 } catch (error) {
                     console.error("Error ពេលទាញយកទិន្នន័យ Google Sheet:", error);
                     if (dataLoadingIndicator) {
-                        dataLoadingIndicator.innerHTML = `<p class="text-red-600 font-semibold">Error: មិនអាចទាញយកទិន្នន័យបាន</p><p class="text-gray-600 text-sm mt-1">សូម Refresh ទំព័រម្ដងទៀត។</p>`;
+                        dataLoadingIndicator.innerHTML = `<p class="text-red-600 font-semibold">Error: មិនអាចទាញយកទិន្នន័យបាន</p><p class="text-gray-600 text-sm mt-1">សូមពិនិត្យអ៊ីនធឺណិត និង Refresh ម្ដងទៀត។</p>`;
                         dataLoadingIndicator.classList.remove('hidden'); 
                     }
                 }
             }
 
             // --- Reusable Searchable Dropdown Logic ---
+            // (Function remains the same)
             function setupSearchableDropdown(inputId, dropdownId, items, onSelectCallback, allowCustom = false) {
                 const searchInput = document.getElementById(inputId);
                 const dropdown = document.getElementById(dropdownId);
                 
-                if (!searchInput || !dropdown) return;
+                if (!searchInput || !dropdown) {
+                     console.error(`Dropdown elements not found: inputId=${inputId}, dropdownId=${dropdownId}`);
+                     return;
+                 }
 
                 function populateDropdown(filter = '') {
                     dropdown.innerHTML = '';
-                    const filteredItems = items.filter(item => item.text.toLowerCase().includes(filter.toLowerCase()));
+                    const filteredItems = items.filter(item => item.text && item.text.toLowerCase().includes(filter.toLowerCase())); // Add check for item.text
                     
+                    if (filteredItems.length === 0 && !allowCustom) {
+                         dropdown.classList.add('hidden');
+                         return;
+                     }
+
                     filteredItems.forEach(item => {
                         const itemEl = document.createElement('div');
                         itemEl.textContent = item.text;
@@ -288,51 +327,56 @@
                         itemEl.className = 'px-4 py-2 hover:bg-gray-100 cursor-pointer text-sm';
                         
                         itemEl.addEventListener('mousedown', (e) => {
-                            e.preventDefault();
+                            e.preventDefault(); // Prevent blur event from firing immediately
                             searchInput.value = item.text;
                             dropdown.classList.add('hidden');
                             if (onSelectCallback) onSelectCallback(item.value);
+                            console.log(`Selected dropdown item: ${item.text} (value: ${item.value})`);
                         });
                         dropdown.appendChild(itemEl);
                     });
-
-                    if (filteredItems.length > 0) {
-                        dropdown.classList.remove('hidden');
-                    } else {
-                        dropdown.classList.add('hidden');
-                    }
+                    dropdown.classList.remove('hidden');
                 }
 
                 searchInput.addEventListener('input', () => {
-                    populateDropdown(searchInput.value);
+                    const currentValue = searchInput.value;
+                    populateDropdown(currentValue);
                     if (allowCustom) {
-                        // If custom values are allowed, pass the text value directly
-                        if (onSelectCallback) onSelectCallback(searchInput.value);
+                        if (onSelectCallback) onSelectCallback(currentValue); // Pass current text if custom allowed
                     } else {
-                        // If not, selection is invalid until an item is clicked
-                        if (onSelectCallback) onSelectCallback(null); 
-                    }
+                         // Check if current text exactly matches an item, otherwise selection is null
+                         const exactMatch = items.find(item => item.text === currentValue);
+                         if (onSelectCallback) onSelectCallback(exactMatch ? exactMatch.value : null);
+                     }
                 });
 
-                searchInput.addEventListener('focus', () => populateDropdown(searchInput.value));
+                searchInput.addEventListener('focus', () => {
+                     console.log(`Focus on ${inputId}`);
+                     populateDropdown(searchInput.value);
+                });
 
                 searchInput.addEventListener('blur', () => {
+                     console.log(`Blur on ${inputId}`);
+                     // Use setTimeout to allow click event on dropdown items to register first
                     setTimeout(() => {
                         dropdown.classList.add('hidden');
-                        const validItem = items.find(item => item.text === searchInput.value);
+                         // Verify selection after blur
+                        const currentValue = searchInput.value;
+                        const validItem = items.find(item => item.text === currentValue);
                         if (validItem) {
                             if (onSelectCallback) onSelectCallback(validItem.value);
-                        } else if (allowCustom) {
-                            // If custom is allowed, the current text is the value
-                            if (onSelectCallback) onSelectCallback(searchInput.value);
-                        } else {
-                            // If invalid text and not custom, clear selection
-                            // searchInput.value = ''; // Optional: clear invalid text
-                            if (onSelectCallback) onSelectCallback(null);
-                        }
-                    }, 200);
+                        } else if (allowCustom && currentValue.trim() !== '') {
+                            if (onSelectCallback) onSelectCallback(currentValue);
+                         } else if (!allowCustom) {
+                            // If not allowing custom and text doesn't match, clear input and selection
+                             console.log(`Invalid selection on ${inputId}: ${currentValue}`);
+                             // searchInput.value = ''; // Uncomment to clear invalid input
+                             if (onSelectCallback) onSelectCallback(null);
+                         }
+                    }, 150); // Increased timeout slightly
                 });
             }
+
 
             function populateUserDropdown(users, inputId, dropdownId, onSelectCallback) {
                 const userItems = users
@@ -342,9 +386,11 @@
             }
 
             // --- Face Scan Logic ---
+            // (Function remains the same)
             async function loadFaceApiModels() {
                 if (!modelStatusEl) return;
                 try {
+                    console.log("Loading face-api models...");
                     modelStatusEl.textContent = 'កំពុងទាញយក Model ស្កេនមុខ...';
                     await Promise.all([
                         faceapi.nets.tinyFaceDetector.loadFromUri('https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@0.22.2/weights'),
@@ -352,103 +398,138 @@
                         faceapi.nets.faceRecognitionNet.loadFromUri('https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@0.22.2/weights'),
                     ]);
                     modelStatusEl.textContent = 'Model ស្កេនមុខបានទាញយករួចរាល់';
-                    if (scanFaceBtn) scanFaceBtn.disabled = (selectedUserId === null);
+                    console.log("Face-api models loaded successfully.");
+                    // Re-evaluate button state after models load
+                    if (scanFaceBtn) scanFaceBtn.disabled = (selectedUserId === null); 
+
                 } catch (error) {
                     console.error("Error ពេលទាញយក Model របស់ face-api:", error);
                     modelStatusEl.textContent = 'Error: មិនអាចទាញយក Model បាន';
                 }
             }
 
+
             async function startFaceScan() {
+                console.log("startFaceScan called.");
                 if (!selectedUserId) {
+                    console.warn("Face scan attempt without selected user.");
                     alert("សូមជ្រើសរើសអត្តលេខរបស់អ្នកជាមុនសិន");
                     return;
                 }
                 
                 const user = allUsersData.find(u => u.id === selectedUserId);
                 if (!user || !user.photo) {
+                    console.error("User data or photo missing for ID:", selectedUserId);
                     alert("Error: មិនអាចទាញយករូបថតយោងរបស់អ្នកបានទេ។ សូមទាក់ទង IT Support។");
                     return;
                 }
+                console.log("Starting face scan for user:", user.id);
 
                 if (faceScanModal) faceScanModal.classList.remove('hidden');
                 if (scanStatusEl) scanStatusEl.textContent = 'កំពុងព្យាយាមបើកកាមេរ៉ា...';
 
                 try {
                     // 1. Fetch and process reference image
+                    console.log("Fetching reference image from:", user.photo);
                     if (scanStatusEl) scanStatusEl.textContent = 'កំពុងទាញយករូបថតយោង...';
                     let referenceImage;
                     try {
-                        // Use direct link
                         const img = new Image();
-                        img.crossOrigin = 'anonymous'; // Important for CORS
+                        img.crossOrigin = 'anonymous'; // Ensure CORS compatibility
                         img.src = user.photo;
                         await new Promise((resolve, reject) => {
-                            img.onload = resolve;
-                            img.onerror = (err) => reject(new Error('Failed to fetch (មិនអាចទាញយករូបថតយោងបាន)។ សូមប្រាកដថា Link រូបថតត្រឹមត្រូវ និងសាកល្បងម្ដងទៀត។'));
+                            img.onload = () => { console.log("Reference image loaded."); resolve(); };
+                            img.onerror = (err) => { 
+                                console.error("Error loading reference image:", err);
+                                reject(new Error('Failed to fetch (មិនអាចទាញយករូបថតយោងបាន)។ សូមប្រាកដថា Link រូបថតត្រឹមត្រូវ និងអាចចូលមើលបាន។')); 
+                            };
                         });
                         referenceImage = img;
                     } catch (fetchError) {
-                        console.error('Fetch image error:', fetchError);
-                        throw fetchError;
+                        console.error('Fetch image error during face scan:', fetchError);
+                        throw fetchError; // Re-throw to be caught by outer try-catch
                     }
                     
                     // 2. Compute reference descriptor
+                    console.log("Computing reference face descriptor...");
                     if (scanStatusEl) scanStatusEl.textContent = 'កំពុងវិភាគរូបថតយោង...';
-                    const referenceDescriptor = await faceapi.computeFaceDescriptor(referenceImage);
-                    if (!referenceDescriptor) {
-                        throw new Error('មិនអាចវិភាគមុខពីរូបថតយោងបានទេ (រូបថតអាចមិនច្បាស់ ឬ មិនមែនជា Link ផ្ទាល់)។');
-                    }
+                     // Add error handling for descriptor computation
+                     let referenceDescriptor;
+                     try {
+                        const referenceDetection = await faceapi.detectSingleFace(referenceImage).withFaceLandmarks(true).withFaceDescriptor();
+                        if (!referenceDetection) {
+                            throw new Error('រកមិនឃើញមុខនៅក្នុងរូបថតយោង');
+                        }
+                        referenceDescriptor = referenceDetection.descriptor;
+                        console.log("Reference descriptor computed.");
+                    } catch (descriptorError) {
+                         console.error("Error computing reference descriptor:", descriptorError);
+                         throw new Error('មិនអាចវិភាគមុខពីរូបថតយោងបានទេ (រូបថតអាចមិនច្បាស់ ឬ Link មិនត្រឹមត្រូវ)។');
+                     }
+
 
                     // 3. Start video stream
+                    console.log("Requesting camera access...");
+                    if (scanStatusEl) scanStatusEl.textContent = 'កំពុងស្នើសុំបើកកាមេរ៉ា...';
                     const stream = await navigator.mediaDevices.getUserMedia({ video: {} });
                     if (video) video.srcObject = stream;
+                    console.log("Camera stream started.");
                     if (scanStatusEl) scanStatusEl.textContent = 'សូមដាក់មុខរបស់អ្នកឲ្យចំកាមេរ៉ា';
 
                     // 4. Start detection interval
+                    console.log("Starting face detection interval.");
+                    if (faceScanInterval) clearInterval(faceScanInterval); // Clear previous interval if any
                     faceScanInterval = setInterval(async () => {
+                        if (!video || video.readyState < 3) return; // Ensure video is ready
+
                         const detections = await faceapi.detectSingleFace(video, new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks(true).withFaceDescriptor();
                         
                         if (detections) {
+                           // console.log("Face detected in video stream."); // Too frequent logging
                             if (scanStatusEl) scanStatusEl.textContent = 'រកឃើញផ្ទៃមុខ! កំពុងផ្ទៀងផ្ទាត់...';
                             const distance = faceapi.euclideanDistance(referenceDescriptor, detections.descriptor);
                             const similarity = (1 - distance).toFixed(2);
-                            const threshold = 0.55; // Relaxed threshold
+                            const threshold = 0.55; // Matching threshold
                             if (scanDebugEl) scanDebugEl.textContent = `ភាពស្រដៀងគ្នា: ${similarity} (ត្រូវតែ > ${1-threshold})`;
 
                             if (distance < threshold) { 
+                                console.log("Face verification successful!", `Distance: ${distance}`);
                                 // SUCCESS
                                 if (scanStatusEl) scanStatusEl.textContent = 'ផ្ទៀងផ្ទាត់ជោគជ័យ!';
-                                stopFaceScan();
-                                loginUser(selectedUserId);
+                                stopFaceScan(); // Stop scanning immediately
+                                loginUser(selectedUserId); // Log in the user
                                 
                                 // Auto-close modal after 1 second
                                 setTimeout(() => {
                                     if (faceScanModal) faceScanModal.classList.add('hidden');
                                 }, 1000);
                             } else {
-                                // Face detected but not a match
+                               // console.log("Face detected but not a match.", `Distance: ${distance}`); // Too frequent
                                 if (scanStatusEl) scanStatusEl.textContent = 'មុខមិនត្រឹមត្រូវ... សូមព្យាយាមម្តងទៀត';
                             }
                         } else {
-                            // No face detected
+                           // console.log("No face detected in video stream."); // Too frequent
                             if (scanStatusEl) scanStatusEl.textContent = 'រកមិនឃើញផ្ទៃមុខ...';
                             if (scanDebugEl) scanDebugEl.textContent = '';
                         }
-                    }, 500);
+                    }, 500); // Check every 500ms
 
                 } catch (error) {
-                    console.error("Error ពេលស្កេនមុខ:", error);
+                    console.error("Error during face scan process:", error);
                     if (scanStatusEl) scanStatusEl.textContent = `Error: ${error.message}`;
-                    stopFaceScan();
-                    setTimeout(() => { 
-                        if (faceScanModal) faceScanModal.classList.add('hidden'); 
-                        alert(`មានបញ្ហាពេលស្កេនមុខ៖\n${error.message}`);
-                    }, 500); // Give user time to read error before alert
+                    stopFaceScan(); // Ensure cleanup on error
+                     // Use setTimeout to ensure user sees the error before the alert
+                     setTimeout(() => { 
+                         if (faceScanModal) faceScanModal.classList.add('hidden'); // Hide modal after error
+                        // Show a more user-friendly alert
+                         alert(`មានបញ្ហាពេលស្កេនមុខ៖\n${error.message}\nសូមប្រាកដថាអ្នកបានអនុញ្ញាតឲ្យប្រើកាមេរ៉ា។`);
+                     }, 1500); 
                 }
             }
 
+
             function stopFaceScan() {
+                console.log("Stopping face scan.");
                 if (faceScanInterval) {
                     clearInterval(faceScanInterval);
                     faceScanInterval = null;
@@ -456,29 +537,47 @@
                 if (video && video.srcObject) {
                     video.srcObject.getTracks().forEach(track => track.stop());
                     video.srcObject = null;
-                }
+                    console.log("Camera stream stopped.");
+                } else {
+                     console.log("No active camera stream to stop.");
+                 }
             }
+
 
             if (scanFaceBtn) scanFaceBtn.addEventListener('click', startFaceScan);
             if (cancelScanBtn) cancelScanBtn.addEventListener('click', () => {
+                console.log("Cancel scan button clicked.");
                 stopFaceScan();
                 if (faceScanModal) faceScanModal.classList.add('hidden');
             });
 
             // --- App Navigation & State Logic ---
-            function loginUser(userId) {
-                const user = allUsersData.find(u => u.id === userId);
-                if (!user) return;
+            // (Function remains the same)
+            function loginUser(userIdToLogin) {
+                console.log("Logging in user ID:", userIdToLogin);
+                const user = allUsersData.find(u => u.id === userIdToLogin);
+                 if (!user) {
+                     console.error("User data not found for login:", userIdToLogin);
+                     alert("មានបញ្ហា Login: រកមិនឃើញទិន្នន័យអ្នកប្រើប្រាស់");
+                     return;
+                 }
+
 
                 // Save to localStorage if checked
                 if (rememberMeCheckbox && rememberMeCheckbox.checked) {
+                    console.log("Remembering user.");
                     localStorage.setItem('leaveAppUser', JSON.stringify(user));
+                } else {
+                    console.log("Not remembering user.");
+                    localStorage.removeItem('leaveAppUser'); // Ensure it's removed if not checked
                 }
                 
                 showLoggedInState(user);
             }
             
+
             function logout() {
+                console.log("Logging out user.");
                 currentUser = null;
                 localStorage.removeItem('leaveAppUser'); 
 
@@ -502,12 +601,17 @@
 
                 // Stop listening to history
                 if (historyUnsubscribe) {
+                    console.log("Unsubscribing from history listener.");
                     historyUnsubscribe();
                     historyUnsubscribe = null;
                 }
+                
+                // Attempt anonymous sign-in again after logout for next session
+                signInAnonymously(auth).catch(err => console.error("Error signing in anonymously after logout:", err));
             }
             
             function showLoggedInState(user) {
+                console.log("Showing logged-in state for:", user.id);
                 currentUser = user;
                 populateAccountPage(user);
                 
@@ -525,7 +629,10 @@
                 setupHistoryListener(user.id);
             }
             
+            // (populateAccountPage function remains the same)
             function populateAccountPage(user) {
+                if (!user) return; // Add null check
+                 console.log("Populating account page for:", user.id);
                 if (userPhotoEl && user.photo) {
                     // Use crossOrigin for images that might be on other domains
                     const img = new Image();
@@ -535,6 +642,7 @@
                         userPhotoEl.src = img.src;
                     };
                     img.onerror = () => { 
+                        console.warn("Could not load user photo from:", user.photo);
                         userPhotoEl.src = 'https://placehold.co/100x100/e2e8f0/64748b?text=គ្មានរូប';
                     };
                 } else if (userPhotoEl) {
@@ -548,23 +656,35 @@
                 if (userDepartmentEl) userDepartmentEl.textContent = user.department || 'មិនមាន';
             }
             
+
             if (logoutBtn) logoutBtn.addEventListener('click', logout);
             
             // --- Bottom Navigation Logic ---
+            // (Function remains the same)
             function navigateTo(pageId) {
+                console.log("Navigating to page:", pageId);
                 // Hide all pages
                 pages.forEach(page => {
                     const pageEl = document.getElementById(page);
                     if (pageEl) {
                         pageEl.classList.add('hidden');
-                    }
+                    } else {
+                         console.warn(`Page element not found: ${page}`);
+                     }
                 });
                 
                 // Show target page
                 const targetPage = document.getElementById(pageId);
                 if (targetPage) {
                     targetPage.classList.remove('hidden');
-                }
+                } else {
+                     console.error(`Target page element not found: ${pageId}`);
+                     // Optionally navigate to a default page like 'page-home'
+                     const homePage = document.getElementById('page-home');
+                     if(homePage) homePage.classList.remove('hidden');
+                     return; // Exit if target page not found
+                 }
+
 
                 // Hide nav bar only for the request form page
                 if (bottomNav) {
@@ -586,7 +706,9 @@
                             btn.classList.remove('text-blue-600');
                         }
                     });
-                }
+                } else {
+                     console.warn("Navigation buttons not found.");
+                 }
                 
                 // Scroll to top
                 if (mainContent) {
@@ -594,15 +716,25 @@
                 }
             }
 
+
             if (navButtons) {
                 navButtons.forEach(button => {
                     button.addEventListener('click', () => {
-                        navigateTo(button.dataset.page);
+                        const pageToNavigate = button.dataset.page;
+                         if (pageToNavigate) {
+                             navigateTo(pageToNavigate);
+                         } else {
+                             console.warn("Nav button clicked without data-page attribute.");
+                         }
                     });
                 });
-            }
+            } else {
+                 console.warn("Navigation buttons not found during event listener setup.");
+             }
+
 
             // --- Leave Request Logic ---
+            // (Arrays remain the same)
             const durations = [
                 "មួយព្រឹក", "មួយរសៀល", "មួយយប់", "មួយថ្ងៃ", "មួយថ្ងៃកន្លះ", "ពីរថ្ងៃ", "ពីរថ្ងៃកន្លះ",
                 "បីថ្ងៃ", "បីថ្ងៃកន្លះ", "បួនថ្ងៃ", "បួនថ្ងៃកន្លះ", "ប្រាំថ្ងៃ", "ប្រាំថ្ងៃកន្លះ",
@@ -616,7 +748,7 @@
             selectedDuration = null; // Reset
             selectedReason = null; // Reset
 
-            // Map duration text to a number of days
+            // (Maps and helpers remain the same)
             const durationToDaysMap = {
                 "មួយព្រឹក": 1, "មួយរសៀល": 1, "មួយយប់": 1, "មួយថ្ងៃ": 1,
                 "មួយថ្ងៃកន្លះ": 1.5, "ពីរថ្ងៃ": 2, "ពីរថ្ងៃកន្លះ": 2.5,
@@ -626,7 +758,6 @@
             };
             const singleDayDurations = ["មួយព្រឹក", "មួយរសៀល", "មួយយប់", "មួយថ្ងៃ"];
 
-            // Helper function to get today's date as YYYY-MM-DD
             function getTodayString() {
                 const today = new Date();
                 const yyyy = today.getFullYear();
@@ -635,61 +766,97 @@
                 return `${yyyy}-${mm}-${dd}`;
             }
 
-            // Helper function to add days to a date string
             function addDays(dateString, days) {
-                const date = new Date(dateString);
-                // Add days (ceil to handle .5) and subtract 1 because start day is inclusive
-                date.setDate(date.getDate() + Math.ceil(days) - 1); 
-                const yyyy = date.getFullYear();
-                const mm = String(date.getMonth() + 1).padStart(2, '0');
-                const dd = String(date.getDate()).padStart(2, '0');
-                return `${yyyy}-${mm}-${dd}`;
+                try {
+                     const date = new Date(dateString);
+                     // Check if date is valid
+                     if (isNaN(date.getTime())) {
+                         console.error("Invalid start date provided to addDays:", dateString);
+                         return getTodayString(); // Return today as fallback
+                     }
+                    // Add days (ceil to handle .5) and subtract 1 because start day is inclusive
+                    date.setDate(date.getDate() + Math.ceil(days) - 1); 
+                    const yyyy = date.getFullYear();
+                    const mm = String(date.getMonth() + 1).padStart(2, '0');
+                    const dd = String(date.getDate()).padStart(2, '0');
+                    return `${yyyy}-${mm}-${dd}`;
+                } catch (e) {
+                     console.error("Error in addDays function:", e);
+                     return getTodayString(); // Fallback to today on error
+                 }
             }
 
-            // This function is called when a duration is selected
+
             function updateDateFields(duration) {
+                console.log("Duration selected:", duration);
                 selectedDuration = duration;
-                if (!duration) {
-                    if (singleDateContainer) singleDateContainer.classList.add('hidden');
-                    if (dateRangeContainer) dateRangeContainer.classList.add('hidden');
+                const today = getTodayString();
+
+                 // Ensure elements exist before manipulating
+                 const singleContainer = document.getElementById('single-date-container');
+                 const rangeContainer = document.getElementById('date-range-container');
+                 const singleInput = document.getElementById('leave-date-single');
+                 const startInput = document.getElementById('leave-date-start');
+                 const endInput = document.getElementById('leave-date-end');
+
+                 if (!singleContainer || !rangeContainer || !singleInput || !startInput || !endInput) {
+                    console.error("Date input elements not found in updateDateFields.");
                     return;
                 }
 
-                const today = getTodayString();
+                if (!duration) {
+                    singleContainer.classList.add('hidden');
+                    rangeContainer.classList.add('hidden');
+                    return;
+                }
+
                 if (singleDayDurations.includes(duration)) {
                     // Logic for single-day leave
-                    if (singleDateContainer) singleDateContainer.classList.remove('hidden');
-                    if (dateRangeContainer) dateRangeContainer.classList.add('hidden');
-                    if (singleDateInput) singleDateInput.value = today;
+                    singleContainer.classList.remove('hidden');
+                    rangeContainer.classList.add('hidden');
+                    singleInput.value = today;
+                    console.log("Set single date to:", today);
                 } else {
                     // Logic for multi-day leave
-                    if (singleDateContainer) singleDateContainer.classList.add('hidden');
-                    if (dateRangeContainer) dateRangeContainer.classList.remove('hidden');
-                    if (startDateInput) startDateInput.value = today;
+                    singleContainer.classList.add('hidden');
+                    rangeContainer.classList.remove('hidden');
+                    startInput.value = today;
                     const days = durationToDaysMap[duration] || 0;
-                    if (endDateInput) {
-                        endDateInput.value = addDays(today, days);
-                        endDateInput.min = today; // User can't select end date before today
-                    }
+                    const endDateValue = addDays(today, days);
+                    endInput.value = endDateValue;
+                    endInput.min = today; // User can't select end date before today
+                    console.log(`Set date range: ${today} to ${endDateValue}`);
                 }
             }
+
 
             // Setup the duration dropdown
             setupSearchableDropdown('duration-search', 'duration-dropdown', durationItems, updateDateFields, false); // No custom durations
             // Setup the reason dropdown
             setupSearchableDropdown('reason-search', 'reason-dropdown', reasonItems, (reason) => {
+                 console.log("Reason selected/typed:", reason);
                 selectedReason = reason; // This callback updates selectedReason
             }, true); // Allow custom reasons
             
             // Open Leave Request Form
             if (openLeaveRequestBtn) openLeaveRequestBtn.addEventListener('click', () => {
-                if (!currentUser) return;
+                console.log("Opening leave request form.");
+                 if (!currentUser) {
+                     console.warn("Attempted to open leave request form without a logged-in user.");
+                     alert("សូម Login ជាមុនសិន។");
+                     return;
+                 }
                 
                 // Populate user info on the form
-                document.getElementById('request-user-photo').src = currentUser.photo || 'https://placehold.co/60x60/e2e8f0/64748b?text=User';
-                document.getElementById('request-user-name').textContent = currentUser.name;
-                document.getElementById('request-user-id').textContent = currentUser.id;
-                document.getElementById('request-user-department').textContent = currentUser.department || 'មិនមាន';
+                 const reqPhoto = document.getElementById('request-user-photo');
+                 const reqName = document.getElementById('request-user-name');
+                 const reqId = document.getElementById('request-user-id');
+                 const reqDept = document.getElementById('request-user-department');
+
+                 if(reqPhoto) reqPhoto.src = currentUser.photo || 'https://placehold.co/60x60/e2e8f0/64748b?text=User';
+                 if(reqName) reqName.textContent = currentUser.name;
+                 if(reqId) reqId.textContent = currentUser.id;
+                 if(reqDept) reqDept.textContent = currentUser.department || 'មិនមាន';
                 
                 // Reset form fields
                 if (durationSearchInput) durationSearchInput.value = '';
@@ -707,15 +874,25 @@
 
             // Cancel Leave Request
             if (cancelLeaveRequestBtn) cancelLeaveRequestBtn.addEventListener('click', () => {
+                console.log("Cancelling leave request.");
                 navigateTo('page-home'); // Go back home
             });
 
             // Submit Leave Request
             if (submitLeaveRequestBtn) submitLeaveRequestBtn.addEventListener('click', async () => {
-                // Read the reason from the input field directly at submit time
-                selectedReason = reasonSearchInput.value;
+                 console.log("Submit leave request button clicked.");
+                 // Read the reason from the input field directly at submit time
+                 selectedReason = reasonSearchInput ? reasonSearchInput.value : null;
 
+
+                 // Validation
+                 if (!currentUser || !currentUser.id) {
+                     console.error("Cannot submit request: currentUser is missing or invalid.");
+                     alert("មានបញ្ហា៖ មិនអាចបញ្ជាក់អ្នកប្រើប្រាស់បានទេ។ សូមព្យាយាម Login ម្ដងទៀត។");
+                     return;
+                 }
                 if (!selectedDuration) {
+                    console.warn("Submit failed: Duration not selected.");
                     if (requestErrorEl) {
                         requestErrorEl.textContent = 'សូមជ្រើសរើស "រយៈពេល" ជាមុនសិន។';
                         requestErrorEl.classList.remove('hidden');
@@ -724,6 +901,7 @@
                 }
                 
                 if (!selectedReason || selectedReason.trim() === '') {
+                     console.warn("Submit failed: Reason is empty.");
                     if (requestErrorEl) {
                         requestErrorEl.textContent = 'សូមបំពេញ "មូលហេតុ" ជាមុនសិន។';
                         requestErrorEl.classList.remove('hidden');
@@ -734,11 +912,19 @@
                 if (requestErrorEl) requestErrorEl.classList.add('hidden');
                 if (requestLoadingEl) requestLoadingEl.classList.remove('hidden');
                 if (submitLeaveRequestBtn) submitLeaveRequestBtn.disabled = true;
+                console.log("Submitting leave request with:", { selectedDuration, selectedReason });
+
 
                 try {
                     // Determine start and end dates
-                    const startDate = singleDayDurations.includes(selectedDuration) ? singleDateInput.value : startDateInput.value;
-                    const endDate = singleDayDurations.includes(selectedDuration) ? singleDateInput.value : endDateInput.value;
+                    const startDate = singleDayDurations.includes(selectedDuration) 
+                        ? (singleDateInput ? singleDateInput.value : getTodayString())
+                        : (startDateInput ? startDateInput.value : getTodayString());
+                    const endDate = singleDayDurations.includes(selectedDuration) 
+                        ? startDate // End date is same as start date for single days
+                        : (endDateInput ? endDateInput.value : getTodayString());
+                        
+                     console.log("Calculated dates:", { startDate, endDate });
                     
                     // Validation
                     if (new Date(endDate) < new Date(startDate)) {
@@ -746,51 +932,68 @@
                     }
 
                     const requestId = `leave_${Date.now()}`;
+                    console.log("Generated Request ID:", requestId);
                     
                     // Prepare data for Firestore
                     const requestData = {
                         userId: currentUser.id, // Employee ID (e.g., DIT123)
                         name: currentUser.name,
-                        department: currentUser.department,
-                        photo: currentUser.photo,
+                        department: currentUser.department || 'N/A', // Add fallback
+                        photo: currentUser.photo || null, // Add fallback
                         duration: selectedDuration,
-                        reason: selectedReason, // Added reason
+                        reason: selectedReason.trim(), // Trim whitespace
                         startDate: startDate,
                         endDate: endDate,
                         status: 'pending', // Initial status
                         requestedAt: serverTimestamp(), // Use server timestamp
                         requestId: requestId,
-                        firestoreUserId: userId // The authenticated user's UID (Firebase Auth UID)
+                         // IMPORTANT: Ensure `userId` (Firebase Auth UID) is available
+                         firestoreUserId: auth.currentUser ? auth.currentUser.uid : 'unknown_auth_user'
                     };
+                    
+                     console.log("Request data prepared for Firestore:", requestData);
 
                     // Use correct Firestore path
+                    if (!db || !leaveRequestsCollectionPath) {
+                        throw new Error("Firestore DB or Collection Path is not initialized.");
+                    }
                     const requestRef = doc(db, leaveRequestsCollectionPath, requestId);
+                    console.log("Attempting to write to Firestore path:", leaveRequestsCollectionPath, "with ID:", requestId);
                     await setDoc(requestRef, requestData);
+                    console.log("Firestore write successful.");
+
 
                     // --- Send Telegram Notification ---
                     const dateString = (startDate === endDate) ? startDate : `ពី ${startDate} ដល់ ${endDate}`;
                     
                     let message = `<b>🔔 សំណើសុំច្បាប់ថ្មី 🔔</b>\n\n`;
-                    message += `<b>ឈ្មោះ:</b> ${currentUser.name}\n`;
-                    message += `<b>អត្តលេខ:</b> ${currentUser.id}\n`;
-                    message += `<b>ផ្នែក:</b> ${currentUser.department || 'N/A'}\n`;
-                    message += `<b>រយៈពេល:</b> ${selectedDuration}\n`;
+                    message += `<b>ឈ្មោះ:</b> ${requestData.name}\n`;
+                    message += `<b>អត្តលេខ:</b> ${requestData.userId}\n`;
+                    message += `<b>ផ្នែក:</b> ${requestData.department}\n`;
+                    message += `<b>រយៈពេល:</b> ${requestData.duration}\n`;
                     message += `<b>កាលបរិច្ឆេទ:</b> ${dateString}\n`;
-                    message += `<b>មូលហេតុ:</b> ${selectedReason}\n\n`;
+                    message += `<b>មូលហេតុ:</b> ${requestData.reason}\n\n`;
                     message += `(សូមចូល Firestore ដើម្បីពិនិត្យ ID: \`${requestId}\`)`;
 
-                    // ** EDITED: Removed reply_markup (buttons) **
+                    console.log("Sending Telegram notification...");
                     const telegramUrl = `https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`;
-                    await fetch(telegramUrl, {
+                     const telegramResponse = await fetch(telegramUrl, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
                             chat_id: CHAT_ID,
                             text: message,
                             parse_mode: 'HTML'
-                            // No reply_markup here
                         })
                     });
+                     if (!telegramResponse.ok) {
+                         const errorBody = await telegramResponse.text();
+                         console.error("Telegram API error:", telegramResponse.status, errorBody);
+                         // Don't throw error, just log it, as Firestore write was successful
+                     } else {
+                         console.log("Telegram notification sent successfully.");
+                     }
+
 
                     // Success
                     if (requestLoadingEl) requestLoadingEl.classList.add('hidden');
@@ -799,18 +1002,24 @@
 
                 } catch (error) {
                     console.error("Error submitting leave request:", error);
+                     let displayError = error.message;
+                     if (error.code && error.code.includes('permission-denied')) {
+                         displayError = 'Missing or insufficient permissions. សូមពិនិត្យ Firestore Rules។';
+                     }
                     if (requestErrorEl) {
-                        requestErrorEl.textContent = `Error: ${error.message}`;
+                        requestErrorEl.textContent = `Error: ${displayError}`;
                         requestErrorEl.classList.remove('hidden');
                     }
                     if (requestLoadingEl) requestLoadingEl.classList.add('hidden');
-                    if (submitLeaveRequestBtn) submitLeaveRequestBtn.disabled = false;
+                    if (submitLeaveRequestBtn) submitLeaveRequestBtn.disabled = false; // Re-enable button on error
                 }
             });
 
             // --- History Page Logic (Real-time) ---
-            function setupHistoryListener(currentUserId) {
+            function setupHistoryListener(currentEmployeeId) {
+                console.log("Setting up history listener for employee ID:", currentEmployeeId);
                 if (historyUnsubscribe) {
+                     console.log("Detaching previous history listener.");
                     historyUnsubscribe(); // Detach old listener if exists
                 }
                 
@@ -818,47 +1027,65 @@
                     console.error("Firestore DB is not initialized. Cannot setup history listener.");
                     return;
                 }
+                 if (!leaveRequestsCollectionPath) {
+                     console.error("Firestore Collection Path is not defined. Cannot setup history listener.");
+                     return;
+                 }
                 
                 // Query for requests where the 'userId' field (employee ID) matches
+                 console.log(`Querying collection '${leaveRequestsCollectionPath}' where 'userId' == '${currentEmployeeId}'`);
                 const historyQuery = query(
                     collection(db, leaveRequestsCollectionPath),
-                    where("userId", "==", currentUserId)
-                    // We sort client-side to avoid needing a composite index for now
-                    // orderBy("requestedAt", "desc") 
+                    where("userId", "==", currentEmployeeId) 
                 );
 
                 historyUnsubscribe = onSnapshot(historyQuery, (snapshot) => {
+                     console.log(`Received history snapshot. Empty: ${snapshot.empty}, Size: ${snapshot.size}`);
                     if (snapshot.empty) {
                         if (historyPlaceholder) historyPlaceholder.classList.remove('hidden');
-                        if (historyContainer) historyContainer.innerHTML = ''; 
+                        if (historyContainer) historyContainer.innerHTML = '<p class="text-center text-gray-500 mt-4">មិនទាន់មានប្រវត្តិសំណើ</p>'; // Clearer empty message
                     } else {
                         if (historyPlaceholder) historyPlaceholder.classList.add('hidden');
-                        if (historyContainer) historyContainer.innerHTML = ''; 
+                        if (historyContainer) historyContainer.innerHTML = ''; // Clear before rendering
                         
                         const requests = [];
                         snapshot.forEach(doc => {
+                             // Log each document received
+                             // console.log("History doc data:", doc.id, "=>", doc.data()); 
                             requests.push(doc.data());
                         });
 
                         // Sort by timestamp client-side (newest first)
                         requests.sort((a, b) => {
-                            const dateA = a.requestedAt ? a.requestedAt.toMillis() : 0;
-                            const dateB = b.requestedAt ? b.requestedAt.toMillis() : 0;
-                            return dateB - dateA;
+                             // Handle cases where requestedAt might be null or not yet set
+                             const timeA = a.requestedAt?.toMillis ? a.requestedAt.toMillis() : 0;
+                             const timeB = b.requestedAt?.toMillis ? b.requestedAt.toMillis() : 0;
+                            return timeB - timeA; // Descending order
                         });
-
+                        console.log(`Rendering ${requests.length} history items.`);
                         requests.forEach(renderHistoryCard);
                     }
                 }, (error) => {
                     console.error("Error listening to history:", error);
+                    // Provide more specific error message if possible
+                    let errorMsg = 'Error: មិនអាចទាញយកប្រវត្តិបានទេ';
+                    if (error.code && error.code.includes('permission-denied')) {
+                         errorMsg = 'Error: មិនមានសិទ្ធិទាញយកប្រវត្តិ (Permission Denied)';
+                     }
                     if (historyPlaceholder) {
                         historyPlaceholder.classList.remove('hidden');
-                        historyPlaceholder.innerHTML = '<p class="text-red-500">Error: មិនអាចទាញយកប្រវត្តិបានទេ</p>';
+                        historyPlaceholder.innerHTML = `<p class="text-red-500">${errorMsg}</p>`;
                     }
+                    if (historyContainer) historyContainer.innerHTML = ''; // Clear any stale data
                 });
             }
 
+            // (renderHistoryCard function remains the same)
             function renderHistoryCard(request) {
+                 if (!request || !request.requestId) {
+                     console.warn("Attempted to render invalid history card data:", request);
+                     return; 
+                 }
                 let statusColor, statusText;
                 switch(request.status) {
                     case 'approved':
@@ -869,19 +1096,20 @@
                         statusColor = 'bg-red-100 text-red-800';
                         statusText = 'បានបដិសេធ';
                         break;
-                    default:
+                    default: // pending or any other status
                         statusColor = 'bg-yellow-100 text-yellow-800';
                         statusText = 'កំពុងរង់ចាំ';
                 }
 
                 const dateString = (request.startDate === request.endDate) 
                     ? request.startDate 
-                    : `${request.startDate} ដល់ ${request.endDate}`;
+                     : (request.startDate && request.endDate ? `${request.startDate} ដល់ ${request.endDate}` : 'N/A'); // Add check for dates
+
 
                 const card = `
                     <div class="bg-white border border-gray-200 rounded-lg shadow-sm p-4 mb-4">
                         <div class="flex justify-between items-center mb-2">
-                            <span class="font-semibold text-gray-800">${request.duration}</span>
+                            <span class="font-semibold text-gray-800">${request.duration || 'N/A'}</span>
                             <span class="text-xs font-medium px-2 py-0.5 rounded-full ${statusColor}">
                                 ${statusText}
                             </span>
@@ -894,6 +1122,9 @@
                     </div>
                 `;
                 if (historyContainer) historyContainer.innerHTML += card;
+                 else {
+                     console.error("History container not found when rendering card.");
+                 }
             }
         });
     </script>
@@ -1340,4 +1571,5 @@
 
 </body>
 </html>
+" between the  tags in the above document.
 
