@@ -15,6 +15,7 @@
 
     <!-- Firebase SDK -->
     <script type="module">
+        // Import the functions you need from the SDKs you need
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { 
             getAuth, 
@@ -24,13 +25,16 @@
         import { 
             getFirestore, 
             doc, 
-            setDoc, 
+            setDoc,
+            updateDoc, // Import updateDoc for editing
+            deleteDoc, // Import deleteDoc for deleting
             collection, 
             query, 
             where, 
             onSnapshot, 
             serverTimestamp,
-            setLogLevel // Import setLogLevel for debugging
+            Timestamp, 
+            setLogLevel 
         } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         // Enable Firestore debug logging
@@ -43,18 +47,19 @@
             projectId: "dipermisstion",
             storageBucket: "dipermisstion.firebasestorage.app",
             messagingSenderId: "512999406057",
-            appId: "1:512999406057:web:953a281ab9dde7a9a0f378", 
+            appId: "1:512999406057:web:953a281ab9dde7a9a0f378",
             measurementId: "G-KDPHXZ7H4B"
         };
         // --- End of Hard-coded Config ---
 
         // --- Global State & Element References ---
-        let db, auth, userId; // Removed appId as it's less used now
+        let db, auth, userId;
         let historyUnsubscribe = null; 
         let allUsersData = []; 
         let currentUser = null; 
         let selectedUserId = null; 
         let faceScanInterval = null; 
+        let currentHistoryFilter = { month: null, year: null, type: 'leave' }; // NEW: Filter state
 
         // --- Google Sheet Config ---
         const SHEET_ID = '1_Kgl8UQXRsVATt_BOHYQjVWYKkRIBA12R-qnsBoSUzc';
@@ -66,10 +71,11 @@
         const CHAT_ID = '1487065922';
         
         // --- Firestore Collection Path ---
-        let leaveRequestsCollectionPath; 
+        const canvasAppId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const leaveRequestsCollectionPath = `/artifacts/${canvasAppId}/public/data/leave_requests`;
 
         // --- Element References ---
-        let userSearchInput, userDropdown, userSearchError, scanFaceBtn, modelStatusEl, 
+        let userSearchInput, userDropdown, scanFaceBtn, modelStatusEl, 
             faceScanModal, video, scanStatusEl, scanDebugEl, cancelScanBtn, 
             loginFormContainer, inAppWarning, dataLoadingIndicator, rememberMeCheckbox, 
             mainAppContainer, homeUserName, loginPage, bottomNav, 
@@ -80,16 +86,35 @@
             singleDateInput, startDateInput, endDateInput, requestErrorEl, requestLoadingEl, 
             historyContainer, historyPlaceholder,
             reasonSearchInput, reasonDropdownEl, selectedDuration, selectedReason,
-            criticalErrorDisplay; 
+            criticalErrorDisplay,
+            // NEW: History Filter Elements
+            historyTabLeave, historyTabOut, historyContentLeave, historyContentOut,
+            monthFilterSelect, yearFilterSelect,
+            // NEW: Edit Modal Elements
+            editModal, editRequestId, editDurationSearch, editDurationDropdown,
+            editReasonSearch, editReasonDropdown, editSingleDateContainer, editDateRangeContainer,
+            editSingleDateInput, editStartDateInput, editEndDateInput,
+            cancelEditBtn, saveEditBtn, editLoadingEl, editErrorEl,
+            // NEW: Delete Modal Elements
+            deleteModal, deleteConfirmText, deleteConfirmBtn, deleteCancelBtn, deleteLoadingEl;
+
+        // --- Lists for Dropdowns ---
+        const durations = [
+            "មួយព្រឹក", "មួយរសៀល", "មួយយប់", "មួយថ្ងៃ", "មួយថ្ងៃកន្លះ", "ពីរថ្ងៃ", "ពីរថ្ងៃកន្លះ",
+            "បីថ្ងៃ", "បីថ្ងៃកន្លះ", "បួនថ្ងៃ", "បួនថ្ងៃកន្លះ", "ប្រាំថ្ងៃ", "ប្រាំថ្ងៃកន្លះ",
+            "ប្រាំមួយថ្ងៃ", "ប្រាំមួយថ្ងៃកន្លះ", "ប្រាំពីរថ្ងៃ"
+        ];
+        const durationItems = durations.map(d => ({ text: d, value: d }));
+        
+        const reasons = ["ឈឺក្បាល", "ចុកពោះ", "គ្រុនក្ដៅ", "ផ្ដាសាយ"];
+        const reasonItems = reasons.map(r => ({ text: r, value: r }));
 
         // --- App Initialization ---
         document.addEventListener('DOMContentLoaded', async () => {
             
             // --- Assign Element References ---
-            // (Assigning elements remains the same)
             userSearchInput = document.getElementById('user-search');
             userDropdown = document.getElementById('user-dropdown');
-            userSearchError = document.getElementById('user-search-error');
             scanFaceBtn = document.getElementById('scan-face-btn');
             modelStatusEl = document.getElementById('model-status');
             faceScanModal = document.getElementById('face-scan-modal');
@@ -133,6 +158,39 @@
             reasonSearchInput = document.getElementById('reason-search');
             reasonDropdownEl = document.getElementById('reason-dropdown');
             criticalErrorDisplay = document.getElementById('critical-error-display');
+            
+            // NEW: History Filter Elements
+            historyTabLeave = document.getElementById('history-tab-leave');
+            historyTabOut = document.getElementById('history-tab-out');
+            historyContentLeave = document.getElementById('history-content-leave');
+            historyContentOut = document.getElementById('history-content-out');
+            monthFilterSelect = document.getElementById('month-filter');
+            yearFilterSelect = document.getElementById('year-filter');
+
+            // NEW: Edit Modal Elements
+            editModal = document.getElementById('edit-request-modal');
+            editRequestId = document.getElementById('edit-request-id');
+            editDurationSearch = document.getElementById('edit-duration-search');
+            editDurationDropdown = document.getElementById('edit-duration-dropdown');
+            editReasonSearch = document.getElementById('edit-reason-search');
+            editReasonDropdown = document.getElementById('edit-reason-dropdown');
+            editSingleDateContainer = document.getElementById('edit-single-date-container');
+            editDateRangeContainer = document.getElementById('edit-date-range-container');
+            editSingleDateInput = document.getElementById('edit-leave-date-single');
+            editStartDateInput = document.getElementById('edit-leave-date-start');
+            editEndDateInput = document.getElementById('edit-leave-date-end');
+            cancelEditBtn = document.getElementById('cancel-edit-btn');
+            saveEditBtn = document.getElementById('save-edit-btn');
+            editLoadingEl = document.getElementById('edit-loading');
+            editErrorEl = document.getElementById('edit-error');
+            
+            // NEW: Delete Modal Elements
+            deleteModal = document.getElementById('delete-confirm-modal');
+            deleteConfirmText = document.getElementById('delete-confirm-text');
+            deleteConfirmBtn = document.getElementById('delete-confirm-btn');
+            deleteCancelBtn = document.getElementById('delete-cancel-btn');
+            deleteLoadingEl = document.getElementById('delete-loading');
+
 
             // --- Firebase Initialization ---
             try {
@@ -141,27 +199,22 @@
                 db = getFirestore(app);
                 auth = getAuth(app);
                 
-                // Get Canvas appId (still needed for Firestore path)
-                const canvasAppId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-                // Define the correct Firestore path using the canvasAppId
-                leaveRequestsCollectionPath = `/artifacts/${canvasAppId}/public/data/leave_requests`;
-                console.log("Using Firestore Path:", leaveRequestsCollectionPath); // Log the path
+                console.log("Using Firestore Path:", leaveRequestsCollectionPath);
 
                 // --- Firebase Authentication ---
                 onAuthStateChanged(auth, (user) => {
                     if (user) {
-                        console.log("Firebase Auth state changed. User is authenticated. UID:", user.uid);
+                        console.log("Firebase Auth state changed. User is authenticated (Anonymous). UID:", user.uid);
                         userId = user.uid; // Set global userId (Firebase Auth UID)
 
-                        // Check for Remembered User (localStorage)
                         const rememberedUser = localStorage.getItem('leaveAppUser');
                         if (rememberedUser) {
                             try {
                                 const parsedUser = JSON.parse(rememberedUser);
                                 if (parsedUser && parsedUser.id) { 
                                     console.log("Found remembered user:", parsedUser.id);
-                                    currentUser = parsedUser; // Set current user
-                                    showLoggedInState(parsedUser); // Go straight to app
+                                    currentUser = parsedUser; 
+                                    showLoggedInState(parsedUser); 
                                     fetchUsers(); // Fetch in background for any updates
                                     return; 
                                 } else {
@@ -172,12 +225,10 @@
                                 localStorage.removeItem('leaveAppUser'); 
                             }
                         }
-                        // If no valid remembered user, start normal flow
                         console.log("No remembered user found, starting normal app flow.");
                         initializeAppFlow();
                     } else {
                         console.log("Firebase Auth: No user signed in. Attempting anonymous sign-in...");
-                        // If not signed in, attempt anonymous sign-in again (might happen on initial load)
                         signInAnonymously(auth).catch(anonError => {
                              console.error("Error during automatic anonymous sign-in attempt:", anonError);
                              if (criticalErrorDisplay) {
@@ -185,12 +236,10 @@
                                  criticalErrorDisplay.textContent = `Critical Error: មិនអាច Sign In បានទេ។ ${anonError.message}។ សូម Refresh ម្ដងទៀត។`;
                              }
                         });
-                        // Don't call logout() here, let onAuthStateChanged handle the new state
                     }
                 });
 
                 // --- Initial Anonymous Sign-In ---
-                // We attempt sign-in here, and onAuthStateChanged will handle the result
                 try {
                     console.log("Attempting initial Anonymous Sign-In...");
                     await signInAnonymously(auth);
@@ -200,23 +249,21 @@
                     if (anonError.code === 'auth/operation-not-allowed') {
                         throw new Error("សូមបើក 'Anonymous' sign-in នៅក្នុង Firebase Console (Authentication > Sign-in method)។");
                     }
-                    // Handle other potential errors during initial sign-in
                     throw new Error(`Firebase Sign-In Error: ${anonError.message}`);
                 }
 
             } catch (e) {
                 console.error("Firebase Initialization/Auth Error:", e);
-                // Show critical error message to user
                 if(criticalErrorDisplay) {
                     criticalErrorDisplay.classList.remove('hidden');
                     criticalErrorDisplay.textContent = `Critical Error: មិនអាចតភ្ជាប់ Firebase បានទេ។ ${e.message}។ សូម Refresh ម្ដងទៀត។`;
                 }
-                if(loginPage) loginPage.classList.add('hidden'); // Hide login form
+                if(loginPage) loginPage.classList.add('hidden'); 
             }
 
-            // --- Main App Logic (to be called after auth is confirmed) ---
+            // --- Main App Logic ---
             function initializeAppFlow() {
-                console.log("initializeAppFlow called."); // Log entry
+                console.log("initializeAppFlow called.");
                 function isClient() {
                     const ua = navigator.userAgent || navigator.vendor || window.opera;
                     return (
@@ -228,22 +275,18 @@
 
                 if (isClient()) {
                     console.log("Detected In-App Browser.");
-                    // It's an in-app browser
                     if (inAppWarning) inAppWarning.classList.remove('hidden');
                     if (modelStatusEl) modelStatusEl.textContent = 'សូមបើកក្នុង Browser ពេញលេញ';
                     if (dataLoadingIndicator) dataLoadingIndicator.classList.add('hidden');
                 } else {
                     console.log("Detected Full Browser.");
-                    // It's a full browser
                     if (inAppWarning) inAppWarning.classList.add('hidden');
                     if (dataLoadingIndicator) dataLoadingIndicator.classList.remove('hidden');
                     
-                    // Start fetching users for the login page
                     fetchUsers();
                     
-                    // Load face-api models
                     if (typeof faceapi !== 'undefined') {
-                        if (scanFaceBtn) scanFaceBtn.disabled = true; // Disable until models are loaded
+                        if (scanFaceBtn) scanFaceBtn.disabled = true; 
                         loadFaceApiModels();
                     } else {
                         console.error("Face-API.js មិនអាចទាញយកបានត្រឹមត្រូវទេ។");
@@ -261,7 +304,6 @@
                         throw new Error(`Google Sheet fetch failed with status: ${response.status}`);
                     }
                     const text = await response.text();
-                    // Robust parsing for Google Sheet JSON response
                     const match = text.match(/google\.visualization\.Query\.setResponse\((.*)\);/s);
                      if (!match || !match[1]) {
                         throw new Error("ទម្រង់ការឆ្លើយតបពី Google Sheet មិនត្រឹមត្រូវ");
@@ -270,17 +312,18 @@
                     
                     if (json.table && json.table.rows && json.table.rows.length > 0) {
                         allUsersData = json.table.rows.map(row => ({
-                            id: row.c && row.c[0] ? row.c[0].v : null, // Check if row.c exists
+                            id: row.c && row.c[0] ? row.c[0].v : null,
                             name: row.c && row.c[1] ? row.c[1].v : null,
                             photo: row.c && row.c[2] ? row.c[2].v : null,
                             gender: row.c && row.c[3] ? row.c[3].v : null,
                             group: row.c && row.c[4] ? row.c[4].v : null,
                             department: row.c && row.c[5] ? row.c[5].v : null,
-                        }));
-                        console.log(`Fetched ${allUsersData.length} users.`);
+                        })).filter(user => user.id && user.name); 
+                        
+                        console.log(`Fetched ${allUsersData.length} valid users.`);
                         populateUserDropdown(allUsersData, 'user-search', 'user-dropdown', (id) => {
                             selectedUserId = id;
-                            if (scanFaceBtn) scanFaceBtn.disabled = (id === null || !modelStatusEl || modelStatusEl.textContent !== 'Model ស្កេនមុខបានទាញយករួចរាល់'); // Also check if models are ready
+                            if (scanFaceBtn) scanFaceBtn.disabled = (id === null || !modelStatusEl || modelStatusEl.textContent !== 'Model ស្កេនមុខបានទាញយករួចរាល់');
                             console.log("Selected User ID:", selectedUserId);
                         });
                         
@@ -301,24 +344,43 @@
             }
 
             // --- Reusable Searchable Dropdown Logic ---
-            // (Function remains the same)
+            let getSelectedDuration, getSelectedReason, getSelectedEditDuration, getSelectedEditReason;
+
             function setupSearchableDropdown(inputId, dropdownId, items, onSelectCallback, allowCustom = false) {
                 const searchInput = document.getElementById(inputId);
                 const dropdown = document.getElementById(dropdownId);
                 
                 if (!searchInput || !dropdown) {
                      console.error(`Dropdown elements not found: inputId=${inputId}, dropdownId=${dropdownId}`);
-                     return;
+                     return () => null; // Return a function that returns null
                  }
+
+                let currentSelection = null; 
 
                 function populateDropdown(filter = '') {
                     dropdown.innerHTML = '';
-                    const filteredItems = items.filter(item => item.text && item.text.toLowerCase().includes(filter.toLowerCase())); // Add check for item.text
+                    const filteredItems = items.filter(item => item.text && item.text.toLowerCase().includes(filter.toLowerCase()));
                     
                     if (filteredItems.length === 0 && !allowCustom) {
                          dropdown.classList.add('hidden');
                          return;
-                     }
+                    }
+                     
+                    if (filteredItems.length === 0 && allowCustom && filter.trim() !== '') {
+                        const itemEl = document.createElement('div');
+                        itemEl.textContent = `"${filter}" (Custom)`;
+                        itemEl.dataset.value = filter;
+                        itemEl.className = 'px-4 py-2 hover:bg-gray-100 cursor-pointer text-sm italic';
+                         itemEl.addEventListener('mousedown', (e) => {
+                            e.preventDefault(); 
+                            searchInput.value = filter;
+                            currentSelection = filter;
+                            dropdown.classList.add('hidden');
+                            if (onSelectCallback) onSelectCallback(filter);
+                            console.log(`Selected custom item: ${filter}`);
+                        });
+                        dropdown.appendChild(itemEl);
+                    }
 
                     filteredItems.forEach(item => {
                         const itemEl = document.createElement('div');
@@ -327,8 +389,9 @@
                         itemEl.className = 'px-4 py-2 hover:bg-gray-100 cursor-pointer text-sm';
                         
                         itemEl.addEventListener('mousedown', (e) => {
-                            e.preventDefault(); // Prevent blur event from firing immediately
+                            e.preventDefault(); 
                             searchInput.value = item.text;
+                            currentSelection = item.value; 
                             dropdown.classList.add('hidden');
                             if (onSelectCallback) onSelectCallback(item.value);
                             console.log(`Selected dropdown item: ${item.text} (value: ${item.value})`);
@@ -341,13 +404,18 @@
                 searchInput.addEventListener('input', () => {
                     const currentValue = searchInput.value;
                     populateDropdown(currentValue);
-                    if (allowCustom) {
-                        if (onSelectCallback) onSelectCallback(currentValue); // Pass current text if custom allowed
+                    
+                    const validItem = items.find(item => item.text === currentValue);
+                    if (validItem) {
+                        currentSelection = validItem.value;
+                        if (onSelectCallback) onSelectCallback(validItem.value);
+                    } else if (allowCustom) {
+                        currentSelection = currentValue; 
+                        if (onSelectCallback) onSelectCallback(currentValue);
                     } else {
-                         // Check if current text exactly matches an item, otherwise selection is null
-                         const exactMatch = items.find(item => item.text === currentValue);
-                         if (onSelectCallback) onSelectCallback(exactMatch ? exactMatch.value : null);
-                     }
+                        currentSelection = null; 
+                        if (onSelectCallback) onSelectCallback(null);
+                    }
                 });
 
                 searchInput.addEventListener('focus', () => {
@@ -357,24 +425,49 @@
 
                 searchInput.addEventListener('blur', () => {
                      console.log(`Blur on ${inputId}`);
-                     // Use setTimeout to allow click event on dropdown items to register first
                     setTimeout(() => {
                         dropdown.classList.add('hidden');
-                         // Verify selection after blur
+                        
                         const currentValue = searchInput.value;
                         const validItem = items.find(item => item.text === currentValue);
+                        
                         if (validItem) {
+                            currentSelection = validItem.value;
                             if (onSelectCallback) onSelectCallback(validItem.value);
                         } else if (allowCustom && currentValue.trim() !== '') {
+                            currentSelection = currentValue;
                             if (onSelectCallback) onSelectCallback(currentValue);
-                         } else if (!allowCustom) {
-                            // If not allowing custom and text doesn't match, clear input and selection
-                             console.log(`Invalid selection on ${inputId}: ${currentValue}`);
-                             // searchInput.value = ''; // Uncomment to clear invalid input
-                             if (onSelectCallback) onSelectCallback(null);
-                         }
-                    }, 150); // Increased timeout slightly
+                        } else {
+                            currentSelection = null;
+                            if (onSelectCallback) onSelectCallback(null);
+                            
+                            if (!allowCustom) {
+                                console.log(`Invalid selection on ${inputId}: ${currentValue}. Clearing.`);
+                                searchInput.value = ''; 
+                            }
+                        }
+                    }, 150);
                 });
+                
+                // NEW: Add a function to set the value programmatically
+                searchInput.setValue = (newValue) => {
+                    const validItem = items.find(item => item.value === newValue);
+                    if (validItem) {
+                        searchInput.value = validItem.text;
+                        currentSelection = validItem.value;
+                        if (onSelectCallback) onSelectCallback(validItem.value);
+                    } else if (allowCustom) {
+                        searchInput.value = newValue;
+                        currentSelection = newValue;
+                        if (onSelectCallback) onSelectCallback(newValue);
+                    } else {
+                         searchInput.value = '';
+                         currentSelection = null;
+                         if (onSelectCallback) onSelectCallback(null);
+                    }
+                };
+
+                return () => currentSelection;
             }
 
 
@@ -382,11 +475,10 @@
                 const userItems = users
                     .filter(user => user.id && user.name)
                     .map(user => ({ text: `${user.id} - ${user.name}`, value: user.id }));
-                setupSearchableDropdown(inputId, dropdownId, userItems, onSelectCallback, false); // No custom user IDs
+                setupSearchableDropdown(inputId, dropdownId, userItems, onSelectCallback, false);
             }
 
             // --- Face Scan Logic ---
-            // (Function remains the same)
             async function loadFaceApiModels() {
                 if (!modelStatusEl) return;
                 try {
@@ -399,7 +491,6 @@
                     ]);
                     modelStatusEl.textContent = 'Model ស្កេនមុខបានទាញយករួចរាល់';
                     console.log("Face-api models loaded successfully.");
-                    // Re-evaluate button state after models load
                     if (scanFaceBtn) scanFaceBtn.disabled = (selectedUserId === null); 
 
                 } catch (error) {
@@ -412,14 +503,12 @@
             async function startFaceScan() {
                 console.log("startFaceScan called.");
                 if (!selectedUserId) {
-                    console.warn("Face scan attempt without selected user.");
                     alert("សូមជ្រើសរើសអត្តលេខរបស់អ្នកជាមុនសិន");
                     return;
                 }
                 
                 const user = allUsersData.find(u => u.id === selectedUserId);
                 if (!user || !user.photo) {
-                    console.error("User data or photo missing for ID:", selectedUserId);
                     alert("Error: មិនអាចទាញយករូបថតយោងរបស់អ្នកបានទេ។ សូមទាក់ទង IT Support។");
                     return;
                 }
@@ -435,7 +524,7 @@
                     let referenceImage;
                     try {
                         const img = new Image();
-                        img.crossOrigin = 'anonymous'; // Ensure CORS compatibility
+                        img.crossOrigin = 'anonymous'; 
                         img.src = user.photo;
                         await new Promise((resolve, reject) => {
                             img.onload = () => { console.log("Reference image loaded."); resolve(); };
@@ -447,13 +536,12 @@
                         referenceImage = img;
                     } catch (fetchError) {
                         console.error('Fetch image error during face scan:', fetchError);
-                        throw fetchError; // Re-throw to be caught by outer try-catch
+                        throw fetchError; 
                     }
                     
                     // 2. Compute reference descriptor
                     console.log("Computing reference face descriptor...");
                     if (scanStatusEl) scanStatusEl.textContent = 'កំពុងវិភាគរូបថតយោង...';
-                     // Add error handling for descriptor computation
                      let referenceDescriptor;
                      try {
                         const referenceDetection = await faceapi.detectSingleFace(referenceImage).withFaceLandmarks(true).withFaceDescriptor();
@@ -467,7 +555,6 @@
                          throw new Error('មិនអាចវិភាគមុខពីរូបថតយោងបានទេ (រូបថតអាចមិនច្បាស់ ឬ Link មិនត្រឹមត្រូវ)។');
                      }
 
-
                     // 3. Start video stream
                     console.log("Requesting camera access...");
                     if (scanStatusEl) scanStatusEl.textContent = 'កំពុងស្នើសុំបើកកាមេរ៉ា...';
@@ -478,50 +565,43 @@
 
                     // 4. Start detection interval
                     console.log("Starting face detection interval.");
-                    if (faceScanInterval) clearInterval(faceScanInterval); // Clear previous interval if any
+                    if (faceScanInterval) clearInterval(faceScanInterval);
                     faceScanInterval = setInterval(async () => {
-                        if (!video || video.readyState < 3) return; // Ensure video is ready
+                        if (!video || video.readyState < 3) return; 
 
                         const detections = await faceapi.detectSingleFace(video, new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks(true).withFaceDescriptor();
                         
                         if (detections) {
-                           // console.log("Face detected in video stream."); // Too frequent logging
                             if (scanStatusEl) scanStatusEl.textContent = 'រកឃើញផ្ទៃមុខ! កំពុងផ្ទៀងផ្ទាត់...';
                             const distance = faceapi.euclideanDistance(referenceDescriptor, detections.descriptor);
                             const similarity = (1 - distance).toFixed(2);
-                            const threshold = 0.55; // Matching threshold
-                            if (scanDebugEl) scanDebugEl.textContent = `ភាពស្រដៀងគ្នា: ${similarity} (ត្រូវតែ > ${1-threshold})`;
+                            const threshold = 0.55; 
+                            if (scanDebugEl) scanDebugEl.textContent = `ភាពស្រដៀងគ្នា: ${similarity} (ត្រូវ > ${1-threshold})`;
 
                             if (distance < threshold) { 
                                 console.log("Face verification successful!", `Distance: ${distance}`);
-                                // SUCCESS
                                 if (scanStatusEl) scanStatusEl.textContent = 'ផ្ទៀងផ្ទាត់ជោគជ័យ!';
-                                stopFaceScan(); // Stop scanning immediately
-                                loginUser(selectedUserId); // Log in the user
+                                stopFaceScan(); 
+                                loginUser(selectedUserId); 
                                 
-                                // Auto-close modal after 1 second
                                 setTimeout(() => {
                                     if (faceScanModal) faceScanModal.classList.add('hidden');
                                 }, 1000);
                             } else {
-                               // console.log("Face detected but not a match.", `Distance: ${distance}`); // Too frequent
                                 if (scanStatusEl) scanStatusEl.textContent = 'មុខមិនត្រឹមត្រូវ... សូមព្យាយាមម្តងទៀត';
                             }
                         } else {
-                           // console.log("No face detected in video stream."); // Too frequent
                             if (scanStatusEl) scanStatusEl.textContent = 'រកមិនឃើញផ្ទៃមុខ...';
                             if (scanDebugEl) scanDebugEl.textContent = '';
                         }
-                    }, 500); // Check every 500ms
+                    }, 500);
 
                 } catch (error) {
                     console.error("Error during face scan process:", error);
                     if (scanStatusEl) scanStatusEl.textContent = `Error: ${error.message}`;
-                    stopFaceScan(); // Ensure cleanup on error
-                     // Use setTimeout to ensure user sees the error before the alert
+                    stopFaceScan();
                      setTimeout(() => { 
-                         if (faceScanModal) faceScanModal.classList.add('hidden'); // Hide modal after error
-                        // Show a more user-friendly alert
+                         if (faceScanModal) faceScanModal.classList.add('hidden');
                          alert(`មានបញ្ហាពេលស្កេនមុខ៖\n${error.message}\nសូមប្រាកដថាអ្នកបានអនុញ្ញាតឲ្យប្រើកាមេរ៉ា។`);
                      }, 1500); 
                 }
@@ -538,7 +618,7 @@
                     video.srcObject.getTracks().forEach(track => track.stop());
                     video.srcObject = null;
                     console.log("Camera stream stopped.");
-                } else {
+                 } else {
                      console.log("No active camera stream to stop.");
                  }
             }
@@ -552,7 +632,6 @@
             });
 
             // --- App Navigation & State Logic ---
-            // (Function remains the same)
             function loginUser(userIdToLogin) {
                 console.log("Logging in user ID:", userIdToLogin);
                 const user = allUsersData.find(u => u.id === userIdToLogin);
@@ -562,14 +641,12 @@
                      return;
                  }
 
-
-                // Save to localStorage if checked
                 if (rememberMeCheckbox && rememberMeCheckbox.checked) {
                     console.log("Remembering user.");
                     localStorage.setItem('leaveAppUser', JSON.stringify(user));
                 } else {
                     console.log("Not remembering user.");
-                    localStorage.removeItem('leaveAppUser'); // Ensure it's removed if not checked
+                    localStorage.removeItem('leaveAppUser');
                 }
                 
                 showLoggedInState(user);
@@ -581,11 +658,9 @@
                 currentUser = null;
                 localStorage.removeItem('leaveAppUser'); 
 
-                // Show login page, hide app
                 if (loginPage) loginPage.classList.remove('hidden');
                 if (mainAppContainer) mainAppContainer.classList.add('hidden');
                 
-                // Clear account details
                 if (userPhotoEl) userPhotoEl.src = 'https://placehold.co/100x100/e2e8f0/64748b?text=User';
                 if (userNameEl) userNameEl.textContent = '...';
                 if (userIdEl) userIdEl.textContent = '...';
@@ -593,21 +668,18 @@
                 if (userGroupEl) userGroupEl.textContent = '...';
                 if (userDepartmentEl) userDepartmentEl.textContent = '...';
                 
-                // Reset login form
                 if (userSearchInput) userSearchInput.value = '';
                 selectedUserId = null;
                 if (scanFaceBtn) scanFaceBtn.disabled = true;
                 if (rememberMeCheckbox) rememberMeCheckbox.checked = false;
 
-                // Stop listening to history
                 if (historyUnsubscribe) {
                     console.log("Unsubscribing from history listener.");
                     historyUnsubscribe();
                     historyUnsubscribe = null;
                 }
                 
-                // Attempt anonymous sign-in again after logout for next session
-                signInAnonymously(auth).catch(err => console.error("Error signing in anonymously after logout:", err));
+                // Don't sign out from anonymous auth, just clear state
             }
             
             function showLoggedInState(user) {
@@ -617,24 +689,21 @@
                 
                 if (homeUserName) homeUserName.textContent = user.name || '...';
 
-                // Hide login page, show app
                 if (loginPage) loginPage.classList.add('hidden');
                 if (mainAppContainer) mainAppContainer.classList.remove('hidden');
                 if (criticalErrorDisplay) criticalErrorDisplay.classList.add('hidden');
 
-                // Navigate to home
                 navigateTo('page-home');
                 
-                // Start listening to history for this user
-                setupHistoryListener(user.id);
+                // NEW: Setup history filter and listener
+                setupHistoryFilters();
+                setupHistoryListener(user.id, currentHistoryFilter.month, currentHistoryFilter.year);
             }
             
-            // (populateAccountPage function remains the same)
             function populateAccountPage(user) {
-                if (!user) return; // Add null check
+                if (!user) return;
                  console.log("Populating account page for:", user.id);
                 if (userPhotoEl && user.photo) {
-                    // Use crossOrigin for images that might be on other domains
                     const img = new Image();
                     img.crossOrigin = "anonymous";
                     img.src = user.photo;
@@ -660,10 +729,8 @@
             if (logoutBtn) logoutBtn.addEventListener('click', logout);
             
             // --- Bottom Navigation Logic ---
-            // (Function remains the same)
             function navigateTo(pageId) {
                 console.log("Navigating to page:", pageId);
-                // Hide all pages
                 pages.forEach(page => {
                     const pageEl = document.getElementById(page);
                     if (pageEl) {
@@ -673,20 +740,16 @@
                      }
                 });
                 
-                // Show target page
                 const targetPage = document.getElementById(pageId);
                 if (targetPage) {
                     targetPage.classList.remove('hidden');
                 } else {
                      console.error(`Target page element not found: ${pageId}`);
-                     // Optionally navigate to a default page like 'page-home'
                      const homePage = document.getElementById('page-home');
                      if(homePage) homePage.classList.remove('hidden');
-                     return; // Exit if target page not found
+                     return;
                  }
 
-
-                // Hide nav bar only for the request form page
                 if (bottomNav) {
                     if (pageId === 'page-request-leave') {
                         bottomNav.classList.add('hidden');
@@ -695,7 +758,6 @@
                     }
                 }
                 
-                // Update nav button active state
                 if (navButtons) {
                     navButtons.forEach(btn => {
                         if (btn.dataset.page === pageId) {
@@ -710,12 +772,10 @@
                      console.warn("Navigation buttons not found.");
                  }
                 
-                // Scroll to top
                 if (mainContent) {
                     mainContent.scrollTop = 0;
                 }
             }
-
 
             if (navButtons) {
                 navButtons.forEach(button => {
@@ -732,23 +792,7 @@
                  console.warn("Navigation buttons not found during event listener setup.");
              }
 
-
             // --- Leave Request Logic ---
-            // (Arrays remain the same)
-            const durations = [
-                "មួយព្រឹក", "មួយរសៀល", "មួយយប់", "មួយថ្ងៃ", "មួយថ្ងៃកន្លះ", "ពីរថ្ងៃ", "ពីរថ្ងៃកន្លះ",
-                "បីថ្ងៃ", "បីថ្ងៃកន្លះ", "បួនថ្ងៃ", "បួនថ្ងៃកន្លះ", "ប្រាំថ្ងៃ", "ប្រាំថ្ងៃកន្លះ",
-                "ប្រាំមួយថ្ងៃ", "ប្រាំមួយថ្ងៃកន្លះ", "ប្រាំពីរថ្ងៃ"
-            ];
-            const durationItems = durations.map(d => ({ text: d, value: d }));
-            
-            const reasons = ["ឈឺក្បាល", "ចុកពោះ", "គ្រុនក្ដៅ", "ផ្ដាសាយ"];
-            const reasonItems = reasons.map(r => ({ text: r, value: r }));
-            
-            selectedDuration = null; // Reset
-            selectedReason = null; // Reset
-
-            // (Maps and helpers remain the same)
             const durationToDaysMap = {
                 "មួយព្រឹក": 1, "មួយរសៀល": 1, "មួយយប់": 1, "មួយថ្ងៃ": 1,
                 "មួយថ្ងៃកន្លះ": 1.5, "ពីរថ្ងៃ": 2, "ពីរថ្ងៃកន្លះ": 2.5,
@@ -758,23 +802,54 @@
             };
             const singleDayDurations = ["មួយព្រឹក", "មួយរសៀល", "មួយយប់", "មួយថ្ងៃ"];
 
+            // --- Date Formatting Helpers ---
             function getTodayString() {
                 const today = new Date();
                 const yyyy = today.getFullYear();
                 const mm = String(today.getMonth() + 1).padStart(2, '0');
                 const dd = String(today.getDate()).padStart(2, '0');
-                return `${yyyy}-${mm}-${dd}`;
+                return `${yyyy}-${mm}-${dd}`; // ISO format (YYYY-MM-DD)
             }
+
+            function formatToMDY(isoDate) {
+                if (!isoDate || isoDate.split('-').length < 3) return "N/A";
+                try {
+                    // Handle potential invalid date strings from input
+                    const [yyyy, mm, dd] = isoDate.split('-');
+                    if (!yyyy || !mm || !dd) return "N/A";
+                    return `${mm}/${dd}/${yyyy}`;
+                } catch (e) {
+                    console.warn("Could not format date:", isoDate);
+                    return "N/A";
+                }
+            }
+            
+            function formatTimestampToLocalTime(timestamp) {
+                if (!timestamp || typeof timestamp.toDate !== 'function') {
+                    return null; 
+                }
+                try {
+                    const date = timestamp.toDate();
+                    let hours = date.getHours();
+                    const minutes = String(date.getMinutes()).padStart(2, '0');
+                    const ampm = hours >= 12 ? 'រសៀល' : 'ព្រឹក';
+                    hours = hours % 12;
+                    hours = hours ? hours : 12; 
+                    return `${hours}:${minutes} ${ampm}`;
+                } catch (e) {
+                    console.error("Error formatting timestamp:", e);
+                    return null;
+                }
+            }
+
 
             function addDays(dateString, days) {
                 try {
                      const date = new Date(dateString);
-                     // Check if date is valid
                      if (isNaN(date.getTime())) {
                          console.error("Invalid start date provided to addDays:", dateString);
-                         return getTodayString(); // Return today as fallback
+                         return getTodayString(); 
                      }
-                    // Add days (ceil to handle .5) and subtract 1 because start day is inclusive
                     date.setDate(date.getDate() + Math.ceil(days) - 1); 
                     const yyyy = date.getFullYear();
                     const mm = String(date.getMonth() + 1).padStart(2, '0');
@@ -782,72 +857,78 @@
                     return `${yyyy}-${mm}-${dd}`;
                 } catch (e) {
                      console.error("Error in addDays function:", e);
-                     return getTodayString(); // Fallback to today on error
+                     return getTodayString();
                  }
             }
 
 
-            function updateDateFields(duration) {
-                console.log("Duration selected:", duration);
-                selectedDuration = duration;
+            function updateDateFields(duration, inputPrefix = '') {
+                console.log(`Duration selected (${inputPrefix}):`, duration);
+                
                 const today = getTodayString();
-
-                 // Ensure elements exist before manipulating
-                 const singleContainer = document.getElementById('single-date-container');
-                 const rangeContainer = document.getElementById('date-range-container');
-                 const singleInput = document.getElementById('leave-date-single');
-                 const startInput = document.getElementById('leave-date-start');
-                 const endInput = document.getElementById('leave-date-end');
+                const singleContainer = document.getElementById(`${inputPrefix}single-date-container`);
+                const rangeContainer = document.getElementById(`${inputPrefix}date-range-container`);
+                const singleInput = document.getElementById(`${inputPrefix}leave-date-single`);
+                const startInput = document.getElementById(`${inputPrefix}leave-date-start`);
+                const endInput = document.getElementById(`${inputPrefix}leave-date-end`);
 
                  if (!singleContainer || !rangeContainer || !singleInput || !startInput || !endInput) {
-                    console.error("Date input elements not found in updateDateFields.");
+                    console.error("Date input elements not found in updateDateFields for prefix:", inputPrefix);
                     return;
                 }
 
-                if (!duration) {
+                if (!duration || !durations.includes(duration)) { 
                     singleContainer.classList.add('hidden');
                     rangeContainer.classList.add('hidden');
                     return;
                 }
 
                 if (singleDayDurations.includes(duration)) {
-                    // Logic for single-day leave
                     singleContainer.classList.remove('hidden');
                     rangeContainer.classList.add('hidden');
                     singleInput.value = today;
                     console.log("Set single date to:", today);
                 } else {
-                    // Logic for multi-day leave
                     singleContainer.classList.add('hidden');
                     rangeContainer.classList.remove('hidden');
                     startInput.value = today;
                     const days = durationToDaysMap[duration] || 0;
                     const endDateValue = addDays(today, days);
                     endInput.value = endDateValue;
-                    endInput.min = today; // User can't select end date before today
+                    endInput.min = today; 
                     console.log(`Set date range: ${today} to ${endDateValue}`);
                 }
             }
 
 
-            // Setup the duration dropdown
-            setupSearchableDropdown('duration-search', 'duration-dropdown', durationItems, updateDateFields, false); // No custom durations
-            // Setup the reason dropdown
-            setupSearchableDropdown('reason-search', 'reason-dropdown', reasonItems, (reason) => {
-                 console.log("Reason selected/typed:", reason);
-                selectedReason = reason; // This callback updates selectedReason
-            }, true); // Allow custom reasons
+            // Setup the duration dropdown (Stricter)
+            getSelectedDuration = setupSearchableDropdown('duration-search', 'duration-dropdown', durationItems, (duration) => {
+                selectedDuration = duration;
+                updateDateFields(duration, '');
+            }, false); 
             
+            // Setup the reason dropdown (Flexible)
+            getSelectedReason = setupSearchableDropdown('reason-search', 'reason-dropdown', reasonItems, (reason) => {
+                 selectedReason = reason;
+                 console.log("Reason changed:", reason);
+            }, true); 
+            
+            // NEW: Setup Edit Modal Dropdowns
+            getSelectedEditDuration = setupSearchableDropdown('edit-duration-search', 'edit-duration-dropdown', durationItems, (duration) => {
+                updateDateFields(duration, 'edit-');
+            }, false);
+            
+            getSelectedEditReason = setupSearchableDropdown('edit-reason-search', 'edit-reason-dropdown', reasonItems, null, true); // No callback needed, will read on save
+
+
             // Open Leave Request Form
             if (openLeaveRequestBtn) openLeaveRequestBtn.addEventListener('click', () => {
                 console.log("Opening leave request form.");
                  if (!currentUser) {
-                     console.warn("Attempted to open leave request form without a logged-in user.");
                      alert("សូម Login ជាមុនសិន។");
                      return;
                  }
                 
-                // Populate user info on the form
                  const reqPhoto = document.getElementById('request-user-photo');
                  const reqName = document.getElementById('request-user-name');
                  const reqId = document.getElementById('request-user-id');
@@ -859,8 +940,8 @@
                  if(reqDept) reqDept.textContent = currentUser.department || 'មិនមាន';
                 
                 // Reset form fields
-                if (durationSearchInput) durationSearchInput.value = '';
-                if (reasonSearchInput) reasonSearchInput.value = '';
+                if (durationSearchInput && typeof durationSearchInput.setValue === 'function') durationSearchInput.setValue(null);
+                if (reasonSearchInput && typeof reasonSearchInput.setValue === 'function') reasonSearchInput.setValue(null);
                 selectedDuration = null;
                 selectedReason = null;
                 if (singleDateContainer) singleDateContainer.classList.add('hidden');
@@ -875,58 +956,58 @@
             // Cancel Leave Request
             if (cancelLeaveRequestBtn) cancelLeaveRequestBtn.addEventListener('click', () => {
                 console.log("Cancelling leave request.");
-                navigateTo('page-home'); // Go back home
+                navigateTo('page-home');
             });
 
             // Submit Leave Request
             if (submitLeaveRequestBtn) submitLeaveRequestBtn.addEventListener('click', async () => {
                  console.log("Submit leave request button clicked.");
-                 // Read the reason from the input field directly at submit time
-                 selectedReason = reasonSearchInput ? reasonSearchInput.value : null;
-
-
-                 // Validation
+                 
+                 const finalDuration = getSelectedDuration();
+                 const finalReason = getSelectedReason();
+                 
                  if (!currentUser || !currentUser.id) {
-                     console.error("Cannot submit request: currentUser is missing or invalid.");
                      alert("មានបញ្ហា៖ មិនអាចបញ្ជាក់អ្នកប្រើប្រាស់បានទេ។ សូមព្យាយាម Login ម្ដងទៀត។");
                      return;
                  }
-                if (!selectedDuration) {
-                    console.warn("Submit failed: Duration not selected.");
+                 
+                if (!finalDuration || !durations.includes(finalDuration)) {
+                    console.warn("Submit failed: Duration is invalid or not in the list.");
                     if (requestErrorEl) {
-                        requestErrorEl.textContent = 'សូមជ្រើសរើស "រយៈពេល" ជាមុនសិន។';
+                        requestErrorEl.textContent = 'សូមជ្រើសរើស "រយៈពេល" ពីក្នុងបញ្ជីឲ្យបានត្រឹមត្រូវ។';
                         requestErrorEl.classList.remove('hidden');
                     }
+                    if (durationSearchInput) durationSearchInput.focus();
                     return;
                 }
                 
-                if (!selectedReason || selectedReason.trim() === '') {
+                if (!finalReason || finalReason.trim() === '') {
                      console.warn("Submit failed: Reason is empty.");
                     if (requestErrorEl) {
                         requestErrorEl.textContent = 'សូមបំពេញ "មូលហេតុ" ជាមុនសិន។';
                         requestErrorEl.classList.remove('hidden');
                     }
+                    if (reasonSearchInput) reasonSearchInput.focus();
                     return;
                 }
                 
                 if (requestErrorEl) requestErrorEl.classList.add('hidden');
                 if (requestLoadingEl) requestLoadingEl.classList.remove('hidden');
                 if (submitLeaveRequestBtn) submitLeaveRequestBtn.disabled = true;
-                console.log("Submitting leave request with:", { selectedDuration, selectedReason });
+                console.log("Submitting leave request with:", { finalDuration, finalReason });
 
 
                 try {
                     // Determine start and end dates
-                    const startDate = singleDayDurations.includes(selectedDuration) 
+                    const startDate = singleDayDurations.includes(finalDuration) 
                         ? (singleDateInput ? singleDateInput.value : getTodayString())
                         : (startDateInput ? startDateInput.value : getTodayString());
-                    const endDate = singleDayDurations.includes(selectedDuration) 
-                        ? startDate // End date is same as start date for single days
+                    const endDate = singleDayDurations.includes(finalDuration) 
+                        ? startDate 
                         : (endDateInput ? endDateInput.value : getTodayString());
                         
-                     console.log("Calculated dates:", { startDate, endDate });
+                     console.log("Calculated dates (YYYY-MM-DD):", { startDate, endDate });
                     
-                    // Validation
                     if (new Date(endDate) < new Date(startDate)) {
                          throw new Error('"ថ្ងៃបញ្ចប់" មិនអាចនៅមុន "ថ្ងៃចាប់ផ្តើម" បានទេ។');
                     }
@@ -934,26 +1015,24 @@
                     const requestId = `leave_${Date.now()}`;
                     console.log("Generated Request ID:", requestId);
                     
-                    // Prepare data for Firestore
                     const requestData = {
-                        userId: currentUser.id, // Employee ID (e.g., DIT123)
+                        userId: currentUser.id,
                         name: currentUser.name,
-                        department: currentUser.department || 'N/A', // Add fallback
-                        photo: currentUser.photo || null, // Add fallback
-                        duration: selectedDuration,
-                        reason: selectedReason.trim(), // Trim whitespace
-                        startDate: startDate,
-                        endDate: endDate,
-                        status: 'pending', // Initial status
-                        requestedAt: serverTimestamp(), // Use server timestamp
+                        department: currentUser.department || 'N/A',
+                        photo: currentUser.photo || null,
+                        duration: finalDuration,
+                        reason: finalReason.trim(),
+                        startDate: startDate, // YYYY-MM-DD
+                        endDate: endDate,   // YYYY-MM-DD
+                        status: 'pending', 
+                        requestedAt: serverTimestamp(),
                         requestId: requestId,
-                         // IMPORTANT: Ensure `userId` (Firebase Auth UID) is available
-                         firestoreUserId: auth.currentUser ? auth.currentUser.uid : 'unknown_auth_user'
+                        decisionAt: null, 
+                        firestoreUserId: auth.currentUser ? auth.currentUser.uid : 'unknown_auth_user'
                     };
                     
                      console.log("Request data prepared for Firestore:", requestData);
 
-                    // Use correct Firestore path
                     if (!db || !leaveRequestsCollectionPath) {
                         throw new Error("Firestore DB or Collection Path is not initialized.");
                     }
@@ -964,15 +1043,19 @@
 
 
                     // --- Send Telegram Notification ---
-                    const dateString = (startDate === endDate) ? startDate : `ពី ${startDate} ដល់ ${endDate}`;
+                    const displayStartDate = formatToMDY(startDate);
+                    const displayEndDate = formatToMDY(endDate);
+                    const dateString = (displayStartDate === displayEndDate) 
+                        ? displayStartDate 
+                        : `ពី ${displayStartDate} ដល់ ${displayEndDate}`;
                     
                     let message = `<b>🔔 សំណើសុំច្បាប់ថ្មី 🔔</b>\n\n`;
-                    message += `<b>ឈ្មោះ:</b> ${requestData.name}\n`;
-                    message += `<b>អត្តលេខ:</b> ${requestData.userId}\n`;
-                    message += `<b>ផ្នែក:</b> ${requestData.department}\n`;
-                    message += `<b>រយៈពេល:</b> ${requestData.duration}\n`;
-                    message += `<b>កាលបរិច្ឆេទ:</b> ${dateString}\n`;
-                    message += `<b>មូលហេតុ:</b> ${requestData.reason}\n\n`;
+                    message += `<b>ឈ្មោះ:</b>     ${requestData.name}\n`;
+                    message += `<b>អត្តលេខ:</b>   ${requestData.userId}\n`;
+                    message += `<b>ផ្នែក:</b>       ${requestData.department}\n`;
+                    message += `<b>រយៈពេល:</b>  ${requestData.duration}\n`;
+                    message += `<b>មូលហេតុ:</b>   ${requestData.reason}\n`;
+                    message += `<b>កាលបរិច្ឆេទ:</b> ${dateString}\n\n`;
                     message += `(សូមចូល Firestore ដើម្បីពិនិត្យ ID: \`${requestId}\`)`;
 
                     console.log("Sending Telegram notification...");
@@ -989,16 +1072,13 @@
                      if (!telegramResponse.ok) {
                          const errorBody = await telegramResponse.text();
                          console.error("Telegram API error:", telegramResponse.status, errorBody);
-                         // Don't throw error, just log it, as Firestore write was successful
                      } else {
                          console.log("Telegram notification sent successfully.");
                      }
 
-
-                    // Success
                     if (requestLoadingEl) requestLoadingEl.classList.add('hidden');
                     alert('សំណើរបស់អ្នកត្រូវបានផ្ញើដោយជោគជ័យ!');
-                    navigateTo('page-history'); // Show history page after success
+                    navigateTo('page-history'); 
 
                 } catch (error) {
                     console.error("Error submitting leave request:", error);
@@ -1011,114 +1091,253 @@
                         requestErrorEl.classList.remove('hidden');
                     }
                     if (requestLoadingEl) requestLoadingEl.classList.add('hidden');
-                    if (submitLeaveRequestBtn) submitLeaveRequestBtn.disabled = false; // Re-enable button on error
+                    if (submitLeaveRequestBtn) submitLeaveRequestBtn.disabled = false;
                 }
             });
 
-            // --- History Page Logic (Real-time) ---
-            function setupHistoryListener(currentEmployeeId) {
-                console.log("Setting up history listener for employee ID:", currentEmployeeId);
+            // --- History Page Logic (NEW: With Filters and Tabs) ---
+            
+            function setupHistoryFilters() {
+                const now = new Date();
+                const currentMonth = now.getMonth() + 1; // 1-12
+                const currentYear = now.getFullYear();
+
+                currentHistoryFilter.month = currentMonth;
+                currentHistoryFilter.year = currentYear;
+
+                // Populate Month Filter
+                const months = ["មករា", "កុម្ភៈ", "មីនា", "មេសា", "ឧសភា", "មិថុនា", "កក្កដា", "សីហា", "កញ្ញា", "តុលា", "វិច្ឆិកា", "ធ្នូ"];
+                if(monthFilterSelect) {
+                    monthFilterSelect.innerHTML = ''; // Clear existing
+                    months.forEach((month, index) => {
+                        const monthValue = index + 1;
+                        const option = document.createElement('option');
+                        option.value = monthValue;
+                        option.textContent = month;
+                        if (monthValue === currentMonth) {
+                            option.selected = true;
+                        }
+                        monthFilterSelect.appendChild(option);
+                    });
+                }
+                
+                // Populate Year Filter (Current year + 2 previous years)
+                if(yearFilterSelect) {
+                    yearFilterSelect.innerHTML = ''; // Clear existing
+                    for (let y = currentYear; y >= currentYear - 2; y--) {
+                         const option = document.createElement('option');
+                        option.value = y;
+                        option.textContent = y;
+                        if (y === currentYear) {
+                            option.selected = true;
+                        }
+                        yearFilterSelect.appendChild(option);
+                    }
+                }
+                
+                // Add event listeners to filters
+                if(monthFilterSelect) monthFilterSelect.addEventListener('change', updateHistoryFilter);
+                if(yearFilterSelect) yearFilterSelect.addEventListener('change', updateHistoryFilter);
+                
+                // Add event listeners to tabs
+                if(historyTabLeave) historyTabLeave.addEventListener('click', () => switchHistoryTab('leave'));
+                if(historyTabOut) historyTabOut.addEventListener('click', () => switchHistoryTab('out'));
+            }
+
+            function switchHistoryTab(tabName) {
+                currentHistoryFilter.type = tabName;
+                console.log("Switched history tab to:", tabName);
+
+                if (tabName === 'leave') {
+                    // Show leave content, hide out content
+                    if(historyTabLeave) historyTabLeave.classList.add('border-blue-600', 'text-blue-600');
+                    if(historyTabLeave) historyTabLeave.classList.remove('border-transparent', 'text-gray-500');
+                    if(historyTabOut) historyTabOut.classList.add('border-transparent', 'text-gray-500');
+                    if(historyTabOut) historyTabOut.classList.remove('border-blue-600', 'text-blue-600');
+                    if(historyContentLeave) historyContentLeave.classList.remove('hidden');
+                    if(historyContentOut) historyContentOut.classList.add('hidden');
+                    
+                    // Re-apply filter for this tab
+                    updateHistoryFilter();
+                } else if (tabName === 'out') {
+                    // Show out content, hide leave content
+                    if(historyTabLeave) historyTabLeave.classList.add('border-transparent', 'text-gray-500');
+                    if(historyTabLeave) historyTabLeave.classList.remove('border-blue-600', 'text-blue-600');
+                    if(historyTabOut) historyTabOut.classList.add('border-blue-600', 'text-blue-600');
+                    if(historyTabOut) historyTabOut.classList.remove('border-transparent', 'text-gray-500');
+                    if(historyContentLeave) historyContentLeave.classList.add('hidden');
+                    if(historyContentOut) historyContentOut.classList.remove('hidden');
+                    
+                    // TODO: In the future, you would apply the filter for 'out' requests here.
+                    // For now, it just shows an empty state.
+                    console.log("Out tab selected (no data source).");
+                }
+            }
+
+            function updateHistoryFilter() {
+                if(monthFilterSelect) currentHistoryFilter.month = parseInt(monthFilterSelect.value, 10);
+                if(yearFilterSelect) currentHistoryFilter.year = parseInt(yearFilterSelect.value, 10);
+                
+                console.log("History filter updated:", currentHistoryFilter);
+                
+                if (currentUser && currentUser.id) {
+                    setupHistoryListener(currentUser.id, currentHistoryFilter.month, currentHistoryFilter.year);
+                }
+            }
+
+
+            function setupHistoryListener(currentEmployeeId, month, year) {
+                console.log(`Setting up history listener for ID: ${currentEmployeeId}, Month: ${month}, Year: ${year}`);
                 if (historyUnsubscribe) {
                      console.log("Detaching previous history listener.");
-                    historyUnsubscribe(); // Detach old listener if exists
+                    historyUnsubscribe();
                 }
                 
-                if (!db) {
-                    console.error("Firestore DB is not initialized. Cannot setup history listener.");
+                if (!db || !leaveRequestsCollectionPath) {
+                    console.error("Firestore DB or Collection Path is not initialized. Cannot setup history listener.");
                     return;
                 }
-                 if (!leaveRequestsCollectionPath) {
-                     console.error("Firestore Collection Path is not defined. Cannot setup history listener.");
-                     return;
-                 }
                 
-                // Query for requests where the 'userId' field (employee ID) matches
-                 console.log(`Querying collection '${leaveRequestsCollectionPath}' where 'userId' == '${currentEmployeeId}'`);
+                // Calculate start and end of the selected month
+                const startDate = new Date(year, month - 1, 1); // First day of the month
+                const endDate = new Date(year, month, 1); // First day of the *next* month
+                
+                // Convert to Firebase Timestamps
+                const startTimestamp = Timestamp.fromDate(startDate);
+                const endTimestamp = Timestamp.fromDate(endDate);
+                
+                console.log(`Querying collection '${leaveRequestsCollectionPath}' where 'userId' == '${currentEmployeeId}' AND 'requestedAt' >= ${startDate.toISOString()} AND 'requestedAt' < ${endDate.toISOString()}`);
+                
                 const historyQuery = query(
                     collection(db, leaveRequestsCollectionPath),
-                    where("userId", "==", currentEmployeeId) 
+                    where("userId", "==", currentEmployeeId),
+                    where("requestedAt", ">=", startTimestamp),
+                    where("requestedAt", "<", endTimestamp)
                 );
+
+                if(historyContainer) historyContainer.innerHTML = ''; // Clear current view
+                if(historyPlaceholder) historyPlaceholder.classList.remove('hidden');
+                if(historyPlaceholder) historyPlaceholder.innerHTML = '<p class="text-gray-500">កំពុងទាញយក...</p>'; // Show loading
 
                 historyUnsubscribe = onSnapshot(historyQuery, (snapshot) => {
                      console.log(`Received history snapshot. Empty: ${snapshot.empty}, Size: ${snapshot.size}`);
                     if (snapshot.empty) {
                         if (historyPlaceholder) historyPlaceholder.classList.remove('hidden');
-                        if (historyContainer) historyContainer.innerHTML = '<p class="text-center text-gray-500 mt-4">មិនទាន់មានប្រវត្តិសំណើ</p>'; // Clearer empty message
+                        if (historyContainer) historyContainer.innerHTML = ''; // Clear
+                        if (historyPlaceholder) historyPlaceholder.innerHTML = '<p class="text-center text-gray-500 mt-4">មិនមានទិន្នន័យសម្រាប់ខែនេះ</p>';
                     } else {
                         if (historyPlaceholder) historyPlaceholder.classList.add('hidden');
-                        if (historyContainer) historyContainer.innerHTML = ''; // Clear before rendering
+                        if (historyContainer) historyContainer.innerHTML = ''; 
                         
                         const requests = [];
                         snapshot.forEach(doc => {
-                             // Log each document received
-                             // console.log("History doc data:", doc.id, "=>", doc.data()); 
                             requests.push(doc.data());
                         });
 
-                        // Sort by timestamp client-side (newest first)
                         requests.sort((a, b) => {
-                             // Handle cases where requestedAt might be null or not yet set
                              const timeA = a.requestedAt?.toMillis ? a.requestedAt.toMillis() : 0;
                              const timeB = b.requestedAt?.toMillis ? b.requestedAt.toMillis() : 0;
-                            return timeB - timeA; // Descending order
+                            return timeB - timeA; 
                         });
                         console.log(`Rendering ${requests.length} history items.`);
                         requests.forEach(renderHistoryCard);
                     }
                 }, (error) => {
                     console.error("Error listening to history:", error);
-                    // Provide more specific error message if possible
                     let errorMsg = 'Error: មិនអាចទាញយកប្រវត្តិបានទេ';
                     if (error.code && error.code.includes('permission-denied')) {
                          errorMsg = 'Error: មិនមានសិទ្ធិទាញយកប្រវត្តិ (Permission Denied)';
                      }
                     if (historyPlaceholder) {
                         historyPlaceholder.classList.remove('hidden');
-                        historyPlaceholder.innerHTML = `<p class="text-red-500">${errorMsg}</p>`;
+                        historyPlaceholder.innerHTML = `<p class="text-red-500 text-center">${errorMsg}</p>`;
                     }
-                    if (historyContainer) historyContainer.innerHTML = ''; // Clear any stale data
+                    if (historyContainer) historyContainer.innerHTML = '';
                 });
             }
 
-            // (renderHistoryCard function remains the same)
             function renderHistoryCard(request) {
                  if (!request || !request.requestId) {
                      console.warn("Attempted to render invalid history card data:", request);
                      return; 
                  }
                 let statusColor, statusText;
+                let decisionTimeHtml = ''; 
+                let actionButtonsHtml = ''; // NEW: For Edit/Delete buttons
+
                 switch(request.status) {
                     case 'approved':
                         statusColor = 'bg-green-100 text-green-800';
                         statusText = 'បានយល់ព្រម';
+                        const approvedTime = formatTimestampToLocalTime(request.decisionAt);
+                        if (approvedTime) {
+                            decisionTimeHtml = `<p class="text-xs text-green-600 mt-1">នៅម៉ោង: ${approvedTime}</p>`;
+                        }
                         break;
                     case 'rejected':
                         statusColor = 'bg-red-100 text-red-800';
                         statusText = 'បានបដិសេធ';
+                        const rejectedTime = formatTimestampToLocalTime(request.decisionAt);
+                        if (rejectedTime) {
+                            decisionTimeHtml = `<p class="text-xs text-red-600 mt-1">នៅម៉ោង: ${rejectedTime}</p>`;
+                        }
                         break;
-                    default: // pending or any other status
+                    case 'editing': // NEW: Editing status
+                         statusColor = 'bg-blue-100 text-blue-800';
+                         statusText = 'កំពុងកែសម្រួល...';
+                         break;
+                    default: // 'pending'
                         statusColor = 'bg-yellow-100 text-yellow-800';
                         statusText = 'កំពុងរង់ចាំ';
+                        // NEW: Add Edit/Delete buttons only if pending
+                        actionButtonsHtml = `
+                            <div class="flex items-center space-x-2">
+                                <button class="edit-btn p-1 text-gray-400 hover:text-blue-600" data-request-id="${request.requestId}">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                      <path d="M17.414 2.586a2 2 0 00-2.828 0L7 10.172V13h2.828l7.586-7.586a2 2 0 000-2.828z" />
+                                      <path fill-rule="evenodd" d="M2 6a2 2 0 012-2h4a1 1 0 010 2H4v10h10v-4a1 1 0 112 0v4a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" clip-rule="evenodd" />
+                                    </svg>
+                                </button>
+                                <button class="delete-btn p-1 text-gray-400 hover:text-red-600" data-request-id="${request.requestId}">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                      <path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd" />
+                                    </svg>
+                                </button>
+                            </div>
+                        `;
                 }
 
-                const dateString = (request.startDate === request.endDate) 
-                    ? request.startDate 
-                     : (request.startDate && request.endDate ? `${request.startDate} ដល់ ${request.endDate}` : 'N/A'); // Add check for dates
-
+                const displayStartDate = formatToMDY(request.startDate);
+                const displayEndDate = formatToMDY(request.endDate);
+                const dateString = (displayStartDate === displayEndDate) 
+                    ? displayStartDate 
+                    : (displayStartDate !== "N/A" && displayEndDate !== "N/A" ? `${displayStartDate} - ${displayEndDate}` : 'N/A'); 
 
                 const card = `
                     <div class="bg-white border border-gray-200 rounded-lg shadow-sm p-4 mb-4">
-                        <div class="flex justify-between items-center mb-2">
+                        <div class="flex justify-between items-start mb-2">
                             <span class="font-semibold text-gray-800">${request.duration || 'N/A'}</span>
-                            <span class="text-xs font-medium px-2 py-0.5 rounded-full ${statusColor}">
-                                ${statusText}
-                            </span>
+                            <div class="text-right">
+                                <span class="text-xs font-medium px-2 py-0.5 rounded-full ${statusColor}">
+                                    ${statusText}
+                                </span>
+                                ${decisionTimeHtml} 
+                            </div>
                         </div>
-                        <p class="text-sm text-gray-600">${dateString}</p>
-                        <p class="text-sm text-gray-500 mt-1"><b>មូលហេតុ:</b> ${request.reason || 'មិនបានបញ្ជាក់'}</p>
-                        <p class="text-xs text-gray-400 mt-2">
-                            ID: ${request.requestId}
-                        </p>
+                        <div class="space-y-1">
+                            <p class="text-sm text-gray-600">
+                                <span class="font-medium">កាលបរិច្ឆេទ:</span> ${dateString}
+                            </p>
+                            <p class="text-sm text-gray-600">
+                                <span class="font-medium">មូលហេតុ:</span> ${request.reason || 'មិនបានបញ្ជាក់'}
+                            </p>
+                        </div>
+                        <div class="flex justify-between items-center mt-3 pt-2 border-t border-gray-100">
+                             <p class="text-xs text-gray-400">
+                                ID: ${request.requestId}
+                            </p>
+                            ${actionButtonsHtml}
+                        </div>
                     </div>
                 `;
                 if (historyContainer) historyContainer.innerHTML += card;
@@ -1126,32 +1345,364 @@
                      console.error("History container not found when rendering card.");
                  }
             }
+            
+            // --- NEW: Add event listeners for Edit/Delete buttons (must use event delegation) ---
+            if (historyContainer) {
+                historyContainer.addEventListener('click', async (e) => {
+                    const editButton = e.target.closest('.edit-btn');
+                    const deleteButton = e.target.closest('.delete-btn');
+
+                    if (editButton) {
+                        const requestId = editButton.dataset.requestId;
+                        console.log("Edit button clicked for:", requestId);
+                        await openEditModal(requestId);
+                    }
+                    
+                    if (deleteButton) {
+                        const requestId = deleteButton.dataset.requestId;
+                        console.log("Delete button clicked for:", requestId);
+                        openDeleteModal(requestId);
+                    }
+                });
+            }
+            
+            // --- NEW: Edit/Delete Modal Functions ---
+            
+            let allHistoryRequests = []; // Cache to find request data for editing
+            // Modify onSnapshot to cache data
+            // (Inside setupHistoryListener's onSnapshot success callback...)
+            /* ...
+                allHistoryRequests = []; // Clear cache
+                snapshot.forEach(doc => {
+                    allHistoryRequests.push(doc.data());
+                });
+                
+                const requests = allHistoryRequests.sort(...)
+                ...
+            */
+           
+           // Modify the onSnapshot in setupHistoryListener to populate allHistoryRequests
+           // Find setupHistoryListener...
+           /* historyUnsubscribe = onSnapshot(historyQuery, (snapshot) => {
+                   ...
+                   if (snapshot.empty) {
+                       allHistoryRequests = []; // Clear cache
+                       ...
+                   } else {
+                       ...
+                       allHistoryRequests = []; // Clear cache
+                       snapshot.forEach(doc => {
+                           allHistoryRequests.push(doc.data());
+                       });
+
+                       const requests = allHistoryRequests.sort(...) // Sort from the cache
+                       ...
+                       requests.forEach(renderHistoryCard);
+                   }
+               }, ...);
+           */
+           // The code is already structured this way, just need to make sure `allHistoryRequests` is populated.
+           // Re-writing setupHistoryListener to be sure:
+           
+           function setupHistoryListener(currentEmployeeId, month, year) {
+                console.log(`Setting up history listener for ID: ${currentEmployeeId}, Month: ${month}, Year: ${year}`);
+                if (historyUnsubscribe) {
+                     console.log("Detaching previous history listener.");
+                    historyUnsubscribe();
+                }
+                
+                if (!db || !leaveRequestsCollectionPath) {
+                    console.error("Firestore DB is not initialized. Cannot setup history listener.");
+                    return;
+                }
+                
+                const startDate = new Date(year, month - 1, 1);
+                const endDate = new Date(year, month, 1);
+                const startTimestamp = Timestamp.fromDate(startDate);
+                const endTimestamp = Timestamp.fromDate(endDate);
+                
+                console.log(`Querying collection '${leaveRequestsCollectionPath}' where 'userId' == '${currentEmployeeId}' AND 'requestedAt' >= ${startDate.toISOString()} AND 'requestedAt' < ${endDate.toISOString()}`);
+                
+                const historyQuery = query(
+                    collection(db, leaveRequestsCollectionPath),
+                    where("userId", "==", currentEmployeeId),
+                    where("requestedAt", ">=", startTimestamp),
+                    where("requestedAt", "<", endTimestamp)
+                );
+
+                if(historyContainer) historyContainer.innerHTML = ''; 
+                if(historyPlaceholder) historyPlaceholder.classList.remove('hidden');
+                if(historyPlaceholder) historyPlaceholder.innerHTML = '<p class="text-gray-500">កំពុងទាញយក...</p>';
+
+                historyUnsubscribe = onSnapshot(historyQuery, (snapshot) => {
+                     console.log(`Received history snapshot. Empty: ${snapshot.empty}, Size: ${snapshot.size}`);
+                     allHistoryRequests = []; // NEW: Clear cache on every update
+                    if (snapshot.empty) {
+                        if (historyPlaceholder) historyPlaceholder.classList.remove('hidden');
+                        if (historyContainer) historyContainer.innerHTML = '';
+                        if (historyPlaceholder) historyPlaceholder.innerHTML = '<p class="text-center text-gray-500 mt-4">មិនមានទិន្នន័យសម្រាប់ខែនេះ</p>';
+                    } else {
+                        if (historyPlaceholder) historyPlaceholder.classList.add('hidden');
+                        if (historyContainer) historyContainer.innerHTML = ''; 
+                        
+                        snapshot.forEach(doc => {
+                            allHistoryRequests.push(doc.data()); // NEW: Populate cache
+                        });
+
+                        const requests = [...allHistoryRequests].sort((a, b) => { // Sort from a copy
+                             const timeA = a.requestedAt?.toMillis ? a.requestedAt.toMillis() : 0;
+                             const timeB = b.requestedAt?.toMillis ? b.requestedAt.toMillis() : 0;
+                            return timeB - timeA; 
+                        });
+                        console.log(`Rendering ${requests.length} history items.`);
+                        requests.forEach(renderHistoryCard);
+                    }
+                }, (error) => {
+                    allHistoryRequests = []; // Clear cache on error
+                    console.error("Error listening to history:", error);
+                    let errorMsg = 'Error: មិនអាចទាញយកប្រវត្តិបានទេ';
+                    if (error.code && error.code.includes('permission-denied')) {
+                         errorMsg = 'Error: មិនមានសិទ្ធិទាញយកប្រវត្តិ (Permission Denied)';
+                     }
+                    if (historyPlaceholder) {
+                        historyPlaceholder.classList.remove('hidden');
+                        historyPlaceholder.innerHTML = `<p class="text-red-500 text-center">${errorMsg}</p>`;
+                    }
+                    if (historyContainer) historyContainer.innerHTML = '';
+                });
+            }
+
+            async function openEditModal(requestId) {
+                if (!editModal) return;
+                console.log("Opening edit modal for:", requestId);
+                
+                const request = allHistoryRequests.find(r => r.requestId === requestId);
+                if (!request) {
+                    console.error("Could not find request data to edit:", requestId);
+                    alert("Error: រកមិនឃើញទិន្នន័យសំណើ។");
+                    return;
+                }
+                
+                // Check if still pending
+                if (request.status !== 'pending') {
+                    alert("សំណើនេះ មិនអាចកែសម្រួលបានទេ (ព្រោះត្រូវបានអនុម័ត/បដិសេធហើយ)។");
+                    return;
+                }
+
+                // --- IMPORTANT: Set status to 'editing' in Firestore ---
+                try {
+                    const requestRef = doc(db, leaveRequestsCollectionPath, requestId);
+                    await updateDoc(requestRef, { status: 'editing' });
+                    console.log("Status set to 'editing' in Firestore.");
+                } catch (e) {
+                    console.error("Error setting 'editing' status:", e);
+                    alert("Error: មិនអាចចាប់ផ្តើមកែសម្រួលបានទេ។ សូមព្យាយាមម្តងទៀត។");
+                    return;
+                }
+
+                // Populate Modal Fields
+                if(editRequestId) editRequestId.value = request.requestId; // Store ID in hidden input
+                if(editDurationSearch) editDurationSearch.setValue(request.duration);
+                if(editReasonSearch) editReasonSearch.setValue(request.reason);
+                
+                // Trigger date field update based on duration
+                updateDateFields(request.duration, 'edit-');
+                
+                // Set specific dates
+                if (singleDayDurations.includes(request.duration)) {
+                    if(editSingleDateInput) editSingleDateInput.value = request.startDate;
+                } else {
+                    if(editStartDateInput) editStartDateInput.value = request.startDate;
+                    if(editEndDateInput) editEndDateInput.value = request.endDate;
+                }
+                
+                if(editErrorEl) editErrorEl.classList.add('hidden');
+                if(editLoadingEl) editLoadingEl.classList.add('hidden');
+                if(saveEditBtn) saveEditBtn.disabled = false;
+                
+                editModal.classList.remove('hidden');
+            }
+
+            async function closeEditModal(revertStatus = false) {
+                if (!editModal) return;
+                const requestId = editRequestId.value;
+                
+                if (revertStatus && requestId) {
+                    console.log("Reverting status to 'pending' for:", requestId);
+                    try {
+                        const requestRef = doc(db, leaveRequestsCollectionPath, requestId);
+                        await updateDoc(requestRef, { status: 'pending' });
+                    } catch (e) {
+                        console.error("Error reverting status:", e);
+                        // Still close modal
+                    }
+                }
+                editModal.classList.add('hidden');
+            }
+
+            if(cancelEditBtn) cancelEditBtn.addEventListener('click', () => closeEditModal(true)); // Revert status on cancel
+
+            if(saveEditBtn) saveEditBtn.addEventListener('click', async () => {
+                if (!editModal || !saveEditBtn) return;
+                
+                const requestId = editRequestId.value;
+                const finalDuration = getSelectedEditDuration();
+                const finalReason = getSelectedEditReason();
+                
+                // Validation
+                if (!finalDuration || !durations.includes(finalDuration)) {
+                     if(editErrorEl) editErrorEl.textContent = 'សូមជ្រើសរើស "រយៈពេល" ឲ្យបានត្រឹមត្រូវ។';
+                     if(editErrorEl) editErrorEl.classList.remove('hidden');
+                    return;
+                }
+                if (!finalReason || finalReason.trim() === '') {
+                     if(editErrorEl) editErrorEl.textContent = 'សូមបំពេញ "មូលហេតុ" ជាមុនសិន។';
+                     if(editErrorEl) editErrorEl.classList.remove('hidden');
+                    return;
+                }
+                
+                if(editErrorEl) editErrorEl.classList.add('hidden');
+                if(editLoadingEl) editLoadingEl.classList.remove('hidden');
+                saveEditBtn.disabled = true;
+                
+                try {
+                    const startDate = singleDayDurations.includes(finalDuration)
+                        ? (editSingleDateInput ? editSingleDateInput.value : getTodayString())
+                        : (editStartDateInput ? editStartDateInput.value : getTodayString());
+                    const endDate = singleDayDurations.includes(finalDuration)
+                        ? startDate
+                        : (editEndDateInput ? editEndDateInput.value : getTodayString());
+
+                    if (new Date(endDate) < new Date(startDate)) {
+                         throw new Error('"ថ្ងៃបញ្ចប់" មិនអាចនៅមុន "ថ្ងៃចាប់ផ្តើម" បានទេ។');
+                    }
+                    
+                    const updatedData = {
+                        duration: finalDuration,
+                        reason: finalReason.trim(),
+                        startDate: startDate,
+                        endDate: endDate,
+                        status: 'pending', // Revert status to 'pending'
+                        requestedAt: serverTimestamp() // Update timestamp to show it's recent
+                    };
+                    
+                    const requestRef = doc(db, leaveRequestsCollectionPath, requestId);
+                    await updateDoc(requestRef, updatedData);
+                    console.log("Update successful for:", requestId);
+                    
+                    // --- Send *Updated* Telegram Notification ---
+                    const displayStartDate = formatToMDY(startDate);
+                    const displayEndDate = formatToMDY(endDate);
+                    const dateString = (displayStartDate === displayEndDate) 
+                        ? displayStartDate 
+                        : `ពី ${displayStartDate} ដល់ ${displayEndDate}`;
+                    
+                    let message = `<b>✏️ សំណើត្រូវបានកែសម្រួល ✏️</b>\n\n`;
+                    message += `<b>ឈ្មោះ:</b>     ${currentUser.name}\n`;
+                    message += `<b>អត្តលេខ:</b>   ${currentUser.id}\n`;
+                    message += `<b>រយៈពេល:</b>  ${finalDuration}\n`;
+                    message += `<b>មូលហេតុ:</b>   ${finalReason.trim()}\n`;
+                    message += `<b>កាលបរិច្ឆេទ:</b> ${dateString}\n\n`;
+                    message += `(ID: \`${requestId}\` ត្រូវបាន Update សូមពិនិត្យឡើងវិញ)`;
+
+                    const telegramUrl = `https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`;
+                    await fetch(telegramUrl, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            chat_id: CHAT_ID,
+                            text: message,
+                            parse_mode: 'HTML'
+                        })
+                    });
+                    
+                    alert("ការកែសម្រួល ត្រូវបានរក្សាទុកដោយជោគជ័យ!");
+                    closeEditModal(false); // Close without reverting status (already set to pending)
+                    
+                } catch (e) {
+                    console.error("Error saving edit:", e);
+                     if(editErrorEl) editErrorEl.textContent = `Error: ${e.message}`;
+                     if(editErrorEl) editErrorEl.classList.remove('hidden');
+                     if(editLoadingEl) editLoadingEl.classList.add('hidden');
+                     saveEditBtn.disabled = false;
+                }
+            });
+
+            function openDeleteModal(requestId) {
+                if (!deleteModal || !deleteConfirmText || !deleteConfirmBtn) return;
+                
+                const request = allHistoryRequests.find(r => r.requestId === requestId);
+                if (!request) {
+                    alert("Error: រកមិនឃើញទិន្នន័យសំណើ។");
+                    return;
+                }
+                
+                // Check if still pending or editing
+                if (request.status !== 'pending' && request.status !== 'editing') {
+                    alert("សំណើនេះ មិនអាចលុបបានទេ (ព្រោះត្រូវបានអនុម័ត/បដិសេធហើយ)។");
+                    return;
+                }
+
+                deleteConfirmText.textContent = `តើអ្នកពិតជាចង់លុបសំណើ (${request.duration} - ${request.reason}) មែនទេ?`;
+                deleteConfirmBtn.dataset.requestId = requestId; // Store ID on button
+                
+                if(deleteLoadingEl) deleteLoadingEl.classList.add('hidden');
+                deleteModal.classList.remove('hidden');
+            }
+            
+            if(deleteCancelBtn) deleteCancelBtn.addEventListener('click', () => {
+                if(deleteModal) deleteModal.classList.add('hidden');
+            });
+            
+            if(deleteConfirmBtn) deleteConfirmBtn.addEventListener('click', async () => {
+                if(!deleteConfirmBtn || !deleteLoadingEl) return;
+                
+                const requestId = deleteConfirmBtn.dataset.requestId;
+                if (!requestId) return;
+                
+                deleteLoadingEl.classList.remove('hidden');
+                deleteConfirmBtn.disabled = true;
+                
+                try {
+                    const requestRef = doc(db, leaveRequestsCollectionPath, requestId);
+                    await deleteDoc(requestRef);
+                    console.log("Document successfully deleted:", requestId);
+                    
+                    alert("សំណើត្រូវបានលុបដោយជោគជ័យ។");
+                    if(deleteModal) deleteModal.classList.add('hidden');
+                    
+                } catch (e) {
+                    console.error("Error deleting document:", e);
+                    alert(`Error: មិនអាចលុបសំណើបានទេ។ ${e.message}`);
+                } finally {
+                     if(deleteLoadingEl) deleteLoadingEl.classList.add('hidden');
+                     if(deleteConfirmBtn) deleteConfirmBtn.disabled = false;
+                }
+            });
+
         });
     </script>
     <style>
         body {
             font-family: 'Kantumruy Pro', sans-serif;
-            -webkit-tap-highlight-color: transparent; /* Remove tap highlight on mobile */
+            -webkit-tap-highlight-color: transparent; 
         }
-        /* Custom scrollbar for dropdown */
-        #user-dropdown, #duration-dropdown, #reason-dropdown {
+        #user-dropdown, #duration-dropdown, #reason-dropdown, #edit-duration-dropdown, #edit-reason-dropdown {
             scrollbar-width: thin;
             scrollbar-color: #9ca3af #f3f4f6;
         }
-        #user-dropdown::-webkit-scrollbar, #duration-dropdown::-webkit-scrollbar, #reason-dropdown::-webkit-scrollbar {
+        #user-dropdown::-webkit-scrollbar, #duration-dropdown::-webkit-scrollbar, #reason-dropdown::-webkit-scrollbar, #edit-duration-dropdown::-webkit-scrollbar, #edit-reason-dropdown::-webkit-scrollbar {
             width: 6px;
         }
-        #user-dropdown::-webkit-scrollbar-track, #duration-dropdown::-webkit-scrollbar-track, #reason-dropdown::-webkit-scrollbar-track {
+        #user-dropdown::-webkit-scrollbar-track, #duration-dropdown::-webkit-scrollbar-track, #reason-dropdown::-webkit-scrollbar-track, #edit-duration-dropdown::-webkit-scrollbar-track, #edit-reason-dropdown::-webkit-scrollbar-track {
             background: #f3f4f6;
             border-radius: 10px;
         }
-        #user-dropdown::-webkit-scrollbar-thumb, #duration-dropdown::-webkit-scrollbar-thumb, #reason-dropdown::-webkit-scrollbar-thumb {
+        #user-dropdown::-webkit-scrollbar-thumb, #duration-dropdown::-webkit-scrollbar-thumb, #reason-dropdown::-webkit-scrollbar-thumb, #edit-duration-dropdown::-webkit-scrollbar-thumb, #edit-reason-dropdown::-webkit-scrollbar-thumb {
             background-color: #9ca3af;
             border-radius: 10px;
             border: 2px solid #f3f4f6;
         }
-        
-        /* Loading Spinner */
         .spinner {
             border: 4px solid rgba(0, 0, 0, 0.1);
             width: 36px;
@@ -1164,10 +1715,14 @@
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
         }
-
-        /* Styles for Request Page */
-        #page-request-leave {
+        #page-request-leave, #edit-request-modal {
             min-height: 100vh;
+        }
+        /* Style for active history tab */
+        .history-tab-active {
+            border-bottom-width: 3px;
+            border-color: #2563EB; /* blue-600 */
+            color: #2563EB;
         }
     </style>
 </head>
@@ -1224,7 +1779,6 @@
                     <!-- User items will be injected here by JS -->
                 </div>
             </div>
-            <p id="user-search-error" class="text-red-500 text-sm mt-1 hidden">សូមជ្រើសរើសអត្តលេខឲ្យបានត្រឹមត្រូវ</p>
             
             <!-- Remember Me Checkbox -->
             <div class="flex items-center mt-4">
@@ -1352,23 +1906,54 @@
             </div>
 
             <!-- ===== PAGE 3: HISTORY (ប្រវត្តិ) ===== -->
-            <div id="page-history" class="p-6 hidden">
-                <h2 class="text-2xl font-bold text-gray-800 mb-6 text-center">ប្រវត្តិសុំច្បាប់</h2>
+            <div id="page-history" class="hidden">
+                <h2 class="text-2xl font-bold text-gray-800 pt-6 px-6 text-center">ប្រវត្តិសុំច្បាប់</h2>
                 
-                <!-- Container for history cards -->
-                <div id="history-container">
-                    <!-- History cards will be injected here by JS -->
-                </div>
+                <!-- NEW: Tabs -->
+                <nav class="flex border-b border-gray-200 mt-6">
+                    <button id="history-tab-leave" class="flex-1 text-center py-3 px-4 font-medium text-sm border-b-2 border-blue-600 text-blue-600">
+                        ច្បាប់ឈប់សម្រាក
+                    </button>
+                    <button id="history-tab-out" class="flex-1 text-center py-3 px-4 font-medium text-sm text-gray-500 border-b-2 border-transparent hover:border-gray-300 hover:text-gray-700">
+                        ច្បាប់ចេញក្រៅ
+                    </button>
+                </nav>
 
-                <!-- Placeholder for history content -->
-                <div id="history-placeholder" class="text-center text-gray-500 mt-10">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12 mx-auto text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                      <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                    </svg>
-                    <p class="mt-4 text-lg">មិនទាន់មានប្រវត្តិសំណើ</p>
-                    <p class="text-sm">រាល់សំណើដែលបានដាក់ស្នើ នឹងបង្ហាញនៅទីនេះ។</p>
+                <!-- NEW: Content for "Leave" Tab -->
+                <div id="history-content-leave" class="p-6">
+                    <!-- NEW: Filters -->
+                    <div class="flex items-center space-x-2 mb-4">
+                        <select id="month-filter" class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            <!-- Months populated by JS -->
+                        </select>
+                        <select id="year-filter" class="w-auto px-3 py-2 border border-gray-300 rounded-lg shadow-sm text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            <!-- Years populated by JS -->
+                        </select>
+                    </div>
+
+                    <!-- Container for history cards -->
+                    <div id="history-container">
+                        <!-- History cards will be injected here by JS -->
+                    </div>
+                    
+                    <!-- Placeholder for history content -->
+                    <div id="history-placeholder" class="text-center text-gray-500 mt-10">
+                        <!-- Message populated by JS (loading/empty) -->
+                    </div>
+                </div>
+                
+                <!-- NEW: Content for "Out" Tab -->
+                <div id="history-content-out" class="p-6 hidden">
+                     <div class="text-center text-gray-500 mt-10">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12 mx-auto text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                          <path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        <p class="mt-4 text-lg">មិនទាន់មាន</p>
+                        <p class="text-sm">មុខងារសុំច្បាប់ចេញក្រៅ នឹងមានក្នុងពេលឆាប់ៗនេះ។</p>
+                    </div>
                 </div>
             </div>
+
 
             <!-- ===== PAGE 4: HELP (ជំនួយ) ===== -->
             <div id="page-help" class="p-6 hidden">
@@ -1440,7 +2025,7 @@
                 </section>
 
                 <!-- Form -->
-                <section class="space-y-4 pb-24"> <!-- Added padding-bottom -->
+                <section class="space-y-4 pb-24">
                     <!-- Duration -->
                     <div>
                         <label for="duration-search" class="block text-sm font-medium text-gray-700 mb-1">រយៈពេល</label>
@@ -1467,7 +2052,7 @@
                         <input
                             type="date"
                             id="leave-date-single"
-                            disabled
+                            readonly
                             class="w-full px-4 py-3 border border-gray-300 rounded-lg shadow-sm bg-gray-100 cursor-not-allowed"
                         >
                     </div>
@@ -1479,7 +2064,7 @@
                             <input
                                 type="date"
                                 id="leave-date-start"
-                                disabled
+                                readonly
                                 class="w-full px-4 py-3 border border-gray-300 rounded-lg shadow-sm bg-gray-100 cursor-not-allowed"
                             >
                         </div>
@@ -1493,9 +2078,9 @@
                         </div>
                     </div>
 
-                    <!-- NEW: Reason -->
+                    <!-- Reason -->
                     <div>
-                        <label for="reason-search" class="block text-sm font-medium text-gray-700 mb-1">មូលហេតុ</Tlabel>
+                        <label for="reason-search" class="block text-sm font-medium text-gray-700 mb-1">មូលហេតុ</label>
                         <div class="relative">
                             <input
                                 type="text"
@@ -1568,8 +2153,130 @@
             </button>
         </nav>
     </div>
+    
+    <!-- ===== NEW: Edit Request Modal ===== -->
+    <div id="edit-request-modal" class="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-70 hidden p-4">
+        <div class="bg-white p-6 rounded-lg shadow-xl w-full max-w-md max-h-[90vh] flex flex-col">
+            <h3 class="text-xl font-bold mb-4">កែសម្រួលសំណើ</h3>
+            
+            <!-- Hidden input to store request ID -->
+            <input type="hidden" id="edit-request-id">
+            
+            <div class="space-y-4 overflow-y-auto pr-2">
+                <!-- Duration -->
+                <div>
+                    <label for="edit-duration-search" class="block text-sm font-medium text-gray-700 mb-1">រយៈពេល</label>
+                    <div class="relative">
+                        <input
+                            type="text"
+                            id="edit-duration-search"
+                            placeholder="វាយ ឬ ជ្រើសរើសរយៈពេល..."
+                            class="w-full px-4 py-3 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                            autocomplete="off"
+                        >
+                        <div
+                            id="edit-duration-dropdown"
+                            class="absolute z-20 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto hidden"
+                        ></div>
+                    </div>
+                </div>
+
+                <!-- Single Date -->
+                <div id="edit-single-date-container" class="hidden">
+                    <label for="edit-leave-date-single" class="block text-sm font-medium text-gray-700 mb-1">កាលបរិច្ឆេទ</label>
+                    <input
+                        type="date"
+                        id="edit-leave-date-single"
+                        class="w-full px-4 py-3 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    >
+                </div>
+
+                <!-- Date Range -->
+                <div id="edit-date-range-container" class="hidden space-y-4">
+                    <div>
+                        <label for="edit-leave-date-start" class="block text-sm font-medium text-gray-700 mb-1">ចាប់ពីថ្ងៃ</label>
+                        <input
+                            type="date"
+                            id="edit-leave-date-start"
+                            class="w-full px-4 py-3 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        >
+                    </div>
+                    <div>
+                        <label for="edit-leave-date-end" class="block text-sm font-medium text-gray-700 mb-1">ដល់ថ្ងៃ</label>
+                        <input
+                            type="date"
+                            id="edit-leave-date-end"
+                            class="w-full px-4 py-3 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        >
+                    </div>
+                </div>
+
+                <!-- Reason -->
+                <div>
+                    <label for="edit-reason-search" class="block text-sm font-medium text-gray-700 mb-1">មូលហេតុ</label>
+                    <div class="relative">
+                        <input
+                            type="text"
+                            id="edit-reason-search"
+                            placeholder="វាយ ឬ ជ្រើសរើសមូលហេតុ..."
+                            class="w-full px-4 py-3 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                            autocomplete="off"
+                        >
+                        <div
+                            id="edit-reason-dropdown"
+                            class="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto hidden"
+                        ></div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Error Message -->
+            <p id="edit-error" class="text-red-500 text-sm hidden mt-4"></p>
+            
+            <!-- Loading Indicator -->
+            <div id="edit-loading" class="flex items-center justify-center text-gray-600 hidden mt-4">
+                <div class="spinner mr-2" style="width: 20px; height: 20px; border-width: 2px;"></div>
+                <span>កំពុងរក្សាទុក...</span>
+            </div>
+            
+            <!-- Modal Actions -->
+            <div class="flex items-center justify-end space-x-3 mt-6 pt-4 border-t border-gray-200">
+                <button id="cancel-edit-btn" class="bg-gray-200 text-gray-800 py-2 px-4 rounded-lg font-semibold hover:bg-gray-300">
+                    បោះបង់
+                </button>
+                 <button id="save-edit-btn" class="bg-blue-600 text-white py-2 px-4 rounded-lg font-semibold shadow-md hover:bg-blue-700 disabled:opacity-50">
+                    រក្សាទុកការកែប្រែ
+                </button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- ===== NEW: Delete Confirm Modal ===== -->
+    <div id="delete-confirm-modal" class="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-70 hidden p-4">
+         <div class="bg-white p-6 rounded-lg shadow-xl w-full max-w-sm text-center">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12 mx-auto text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+            <h3 class="text-xl font-bold my-3">បញ្ជាក់ការលុប</h3>
+            <p id="delete-confirm-text" class="text-gray-600 mb-6 text-sm">តើអ្នកពិតជាចង់លុបសំណើនេះមែនទេ?</p>
+            
+            <!-- Loading -->
+            <div id="delete-loading" class="flex items-center justify-center text-gray-600 hidden mb-4">
+                <div class="spinner mr-2" style="width: 20px; height: 20px; border-width: 2px;"></div>
+                <span>កំពុងលុប...</span>
+            </div>
+            
+            <div class="flex items-center justify-center space-x-3">
+                 <button id="delete-cancel-btn" class="bg-gray-200 text-gray-800 py-2 px-5 rounded-lg font-semibold hover:bg-gray-300">
+                    ទេ
+                </button>
+                 <button id="delete-confirm-btn" class="bg-red-600 text-white py-2 px-5 rounded-lg font-semibold shadow-md hover:bg-red-700 disabled:opacity-50">
+                    យល់ព្រមលុប
+                </button>
+            </div>
+         </div>
+    </div>
 
 </body>
 </html>
-" between the  tags in the above document.
 
