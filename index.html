@@ -25,7 +25,6 @@
             getFirestore, 
             doc, 
             setDoc, 
-            getDoc,
             updateDoc,
             deleteDoc,
             collection, 
@@ -41,7 +40,6 @@
         setLogLevel('debug'); 
 
         // --- Hard-coded Firebase Config ---
-        // This config is specific to the "dipermisstion" project
         const firebaseConfig = {
             apiKey: "AIzaSyDjr_Ha2RxOWEumjEeSdluIW3JmyM76mVk",
             authDomain: "dipermisstion.firebaseapp.com",
@@ -54,13 +52,13 @@
         // --- End of Hard-coded Config ---
 
         // --- Global State & Element References ---
-        let db, auth, userId; 
-        let historyUnsubscribe = null; 
+        let db, auth, userId, canvasAppId;
+        let historyLeaveUnsubscribe = null; 
+        let historyOutUnsubscribe = null;
         let allUsersData = []; 
         let currentUser = null; 
         let selectedUserId = null; 
         let faceScanInterval = null; 
-        let currentEditRequestId = null; // For tracking which request is being edited
 
         // --- Google Sheet Config ---
         const SHEET_ID = '1_Kgl8UQXRsVATt_BOHYQjVWYKkRIBA12R-qnsBoSUzc';
@@ -71,111 +69,60 @@
         const BOT_TOKEN = '8284240201:AAEDRGHDcuoQAhkWk7km6I-9csZNbReOPHw';
         const CHAT_ID = '1487065922';
         
-        // --- Firestore Collection Path ---
+        // --- Firestore Collection Paths ---
         let leaveRequestsCollectionPath; 
+        let outRequestsCollectionPath;
 
-        // --- Element References (Global) ---
-        let userSearchInput, userDropdown, userSearchError, scanFaceBtn, modelStatusEl, 
-            faceScanModal, video, scanStatusEl, scanDebugEl, cancelScanBtn, 
+        // --- Element References ---
+        let userSearchInput, userDropdown, scanFaceBtn, modelStatusEl, 
+            faceScanModal, video, scanStatusEl, cancelScanBtn, 
             loginFormContainer, inAppWarning, dataLoadingIndicator, rememberMeCheckbox, 
             mainAppContainer, homeUserName, loginPage, bottomNav, 
             userPhotoEl, userNameEl, userIdEl, userGenderEl, userGroupEl, userDepartmentEl, 
             logoutBtn, navButtons, pages, mainContent, 
+            
+            // Leave Request
             requestLeavePage, openLeaveRequestBtn, cancelLeaveRequestBtn, submitLeaveRequestBtn, 
-            durationSearchInput, durationDropdownEl, singleDateContainer, dateRangeContainer, 
-            singleDateInput, startDateInput, endDateInput, requestErrorEl, requestLoadingEl, 
-            reasonSearchInput, reasonDropdownEl, selectedDuration, selectedReason,
-            criticalErrorDisplay,
-            historyContainer, historyPlaceholder, historyTabLeave, historyTabOut,
-            editModal, editErrorEl, editLoadingEl, editCancelBtn, editSaveBtn,
-            editDurationSearch, editDurationDropdown, editReasonSearch, editReasonDropdown,
-            editSingleDateContainer, editDateRangeContainer, editSingleDateInput, 
-            editStartDateInput, editEndDateInput,
-            deleteModal, deleteConfirmBtn, deleteCancelBtn, deleteLoadingEl;
+            leaveDurationSearchInput, leaveDurationDropdownEl, leaveSingleDateContainer, leaveDateRangeContainer, 
+            leaveSingleDateInput, leaveStartDateInput, leaveEndDateInput, leaveRequestErrorEl, leaveRequestLoadingEl, 
+            leaveReasonSearchInput, leaveReasonDropdownEl, 
+            
+            // Out Request
+            requestOutPage, openOutRequestBtn, cancelOutRequestBtn, submitOutRequestBtn,
+            outDurationSearchInput, outDurationDropdownEl, outReasonSearchInput, outReasonDropdownEl,
+            outDateInput, outRequestErrorEl, outRequestLoadingEl,
 
-        // --- App Constants ---
-        const durations = [
-            "មួយព្រឹក", "មួយរសៀល", "មួយយប់", "មួយថ្ងៃ", "មួយថ្ងៃកន្លះ", "ពីរថ្ងៃ", "ពីរថ្ងៃកន្លះ",
-            "បីថ្ងៃ", "បីថ្ងៃកន្លះ", "បួនថ្ងៃ", "បួនថ្ងៃកន្លះ", "ប្រាំថ្ងៃ", "ប្រាំថ្ងៃកន្លះ",
-            "ប្រាំមួយថ្ងៃ", "ប្រាំមួយថ្ងៃកន្លះ", "ប្រាំពីរថ្ងៃ"
-        ];
-        const durationItems = durations.map(d => ({ text: d, value: d }));
-        
-        const reasons = ["ឈឺក្បាល", "ចុកពោះ", "គ្រុនក្ដៅ", "ផ្ដាសាយ"];
-        const reasonItems = reasons.map(r => ({ text: r, value: r }));
-        
-        const durationToDaysMap = {
-            "មួយព្រឹក": 1, "មួយរសៀល": 1, "មួយយប់": 1, "មួយថ្ងៃ": 1,
-            "មួយថ្ងៃកន្លះ": 1.5, "ពីរថ្ងៃ": 2, "ពីរថ្ងៃកន្លះ": 2.5,
-            "បីថ្ងៃ": 3, "បីថ្ងៃកន្លះ": 3.5, "បួនថ្ងៃ": 4, "បួនថ្ងៃកន្លះ": 4.5,
-            "ប្រាំថ្ងៃ": 5, "ប្រាំថ្ងៃកន្លះ": 5.5, "ប្រាំមួយថ្ងៃ": 6, "ប្រាំមួយថ្ងៃកន្លះ": 6.5,
-            "ប្រាំពីរថ្ងៃ": 7
-        };
-        const singleDayDurations = ["មួយព្រឹក", "មួយរសៀល", "មួយយប់", "មួយថ្ងៃ"];
+            // History
+            historyContainerLeave, historyPlaceholderLeave, historyContainerOut, historyPlaceholderOut,
+            historyTabButtons, historyTabPanels,
 
+            // Edit Modal
+            editModal, editForm, editRequestIdInput, editTypeInput, editDurationSearch, editDurationDropdown,
+            editReasonSearch, editReasonDropdown, editStartDateInput, editEndDateInput,
+            editSingleDateContainer, editDateRangeContainer,
+            editErrorEl, cancelEditBtn, saveEditBtn,
 
-        // --- Helper Functions ---
-        function getTodayString(date = new Date()) {
-            const yyyy = date.getFullYear();
-            const mm = String(date.getMonth() + 1).padStart(2, '0');
-            const dd = String(date.getDate()).padStart(2, '0');
-            return `${yyyy}-${mm}-${dd}`;
-        }
-        
-        function formatFirebaseDate(dateStr) {
-            try {
-                const date = new Date(dateStr);
-                if (isNaN(date.getTime())) return dateStr; // Return original if invalid
-                const yyyy = date.getFullYear();
-                const mm = String(date.getMonth() + 1).padStart(2, '0');
-                const dd = String(date.getDate()).padStart(2, '0');
-                return `${mm}/${dd}/${yyyy}`;
-            } catch (e) {
-                return dateStr;
-            }
-        }
-        
-        function formatFirebaseTimestamp(timestamp) {
-            if (!timestamp || !timestamp.toDate) return 'N/A';
-            try {
-                const date = timestamp.toDate();
-                let hours = date.getHours();
-                const minutes = String(date.getMinutes()).padStart(2, '0');
-                const ampm = hours >= 12 ? 'ល្ងាច' : 'ព្រឹក';
-                hours = hours % 12;
-                hours = hours ? hours : 12; // Hour '0' should be '12'
-                return `${hours}:${minutes} ${ampm}`;
-            } catch (e) {
-                console.error("Error formatting timestamp:", e);
-                return 'N/A';
-            }
-        }
-        
-        function addDays(dateString, days) {
-            try {
-                 const date = new Date(dateString);
-                 if (isNaN(date.getTime())) return getTodayString();
-                date.setDate(date.getDate() + Math.ceil(days) - 1); 
-                return getTodayString(date);
-            } catch (e) {
-                 return getTodayString();
-             }
-        }
-        
-        
+            // Delete Confirm Modal
+            deleteConfirmModal, deleteConfirmText, cancelDeleteBtn, confirmDeleteBtn,
+            
+            criticalErrorDisplay; 
+            
+        let editingRequest = null; // Store request data during edit
+        let requestToDelete = null; // Store request data for deletion
+
         // --- App Initialization ---
         document.addEventListener('DOMContentLoaded', async () => {
             
             // --- Assign Element References ---
+            criticalErrorDisplay = document.getElementById('critical-error-display');
+            loginPage = document.getElementById('page-login');
             userSearchInput = document.getElementById('user-search');
             userDropdown = document.getElementById('user-dropdown');
-            userSearchError = document.getElementById('user-search-error');
             scanFaceBtn = document.getElementById('scan-face-btn');
             modelStatusEl = document.getElementById('model-status');
             faceScanModal = document.getElementById('face-scan-modal');
             video = document.getElementById('video');
             scanStatusEl = document.getElementById('scan-status');
-            scanDebugEl = document.getElementById('scan-debug');
             cancelScanBtn = document.getElementById('cancel-scan-btn');
             loginFormContainer = document.getElementById('login-form-container');
             inAppWarning = document.getElementById('in-app-warning');
@@ -183,7 +130,6 @@
             rememberMeCheckbox = document.getElementById('remember-me');
             mainAppContainer = document.getElementById('main-app-container');
             homeUserName = document.getElementById('home-user-name');
-            loginPage = document.getElementById('page-login');
             bottomNav = document.getElementById('bottom-navigation');
             userPhotoEl = document.getElementById('user-photo');
             userNameEl = document.getElementById('user-name');
@@ -193,47 +139,70 @@
             userDepartmentEl = document.getElementById('user-department');
             logoutBtn = document.getElementById('logout-btn');
             navButtons = document.querySelectorAll('.nav-btn');
-            pages = ['page-home', 'page-history', 'page-account', 'page-help', 'page-request-leave'];
+            pages = ['page-home', 'page-history', 'page-account', 'page-help', 'page-request-leave', 'page-request-out'];
             mainContent = document.getElementById('main-content');
+            
+            // Leave Request Elements
             requestLeavePage = document.getElementById('page-request-leave');
             openLeaveRequestBtn = document.getElementById('open-leave-request-btn');
             cancelLeaveRequestBtn = document.getElementById('cancel-leave-request-btn');
             submitLeaveRequestBtn = document.getElementById('submit-leave-request-btn');
-            durationSearchInput = document.getElementById('duration-search');
-            durationDropdownEl = document.getElementById('duration-dropdown');
-            singleDateContainer = document.getElementById('single-date-container');
-            dateRangeContainer = document.getElementById('date-range-container');
-            singleDateInput = document.getElementById('leave-date-single');
-            startDateInput = document.getElementById('leave-date-start');
-            endDateInput = document.getElementById('leave-date-end');
-            requestErrorEl = document.getElementById('request-error');
-            requestLoadingEl = document.getElementById('request-loading');
-            reasonSearchInput = document.getElementById('reason-search');
-            reasonDropdownEl = document.getElementById('reason-dropdown');
-            criticalErrorDisplay = document.getElementById('critical-error-display');
-            historyContainer = document.getElementById('history-container');
-            historyPlaceholder = document.getElementById('history-placeholder');
-            historyTabLeave = document.getElementById('history-tab-leave');
-            historyTabOut = document.getElementById('history-tab-out');
+            leaveDurationSearchInput = document.getElementById('leave-duration-search');
+            leaveDurationDropdownEl = document.getElementById('leave-duration-dropdown');
+            leaveSingleDateContainer = document.getElementById('leave-single-date-container');
+            leaveDateRangeContainer = document.getElementById('leave-date-range-container');
+            leaveSingleDateInput = document.getElementById('leave-date-single');
+            leaveStartDateInput = document.getElementById('leave-date-start');
+            leaveEndDateInput = document.getElementById('leave-date-end');
+            leaveRequestErrorEl = document.getElementById('leave-request-error');
+            leaveRequestLoadingEl = document.getElementById('leave-request-loading');
+            leaveReasonSearchInput = document.getElementById('leave-reason-search');
+            leaveReasonDropdownEl = document.getElementById('leave-reason-dropdown');
+
+            // Out Request Elements
+            requestOutPage = document.getElementById('page-request-out');
+            openOutRequestBtn = document.getElementById('open-out-request-btn');
+            cancelOutRequestBtn = document.getElementById('cancel-out-request-btn');
+            submitOutRequestBtn = document.getElementById('submit-out-request-btn');
+            outDurationSearchInput = document.getElementById('out-duration-search');
+            outDurationDropdownEl = document.getElementById('out-duration-dropdown');
+            outReasonSearchInput = document.getElementById('out-reason-search');
+            outReasonDropdownEl = document.getElementById('out-reason-dropdown');
+            outDateInput = document.getElementById('out-date-single');
+            outRequestErrorEl = document.getElementById('out-request-error');
+            outRequestLoadingEl = document.getElementById('out-request-loading');
+
+            // History Elements
+            historyContainerLeave = document.getElementById('history-container-leave');
+            historyPlaceholderLeave = document.getElementById('history-placeholder-leave');
+            historyContainerOut = document.getElementById('history-container-out');
+            historyPlaceholderOut = document.getElementById('history-placeholder-out');
+            historyTabButtons = document.querySelectorAll('.history-tab-btn');
+            historyTabPanels = document.querySelectorAll('.history-tab-panel');
+
+            // Edit Modal Elements
             editModal = document.getElementById('edit-request-modal');
-            editErrorEl = document.getElementById('edit-error');
-            editLoadingEl = document.getElementById('edit-loading');
-            editCancelBtn = document.getElementById('edit-cancel-btn');
-            editSaveBtn = document.getElementById('edit-save-btn');
+            editForm = document.getElementById('edit-request-form');
+            editRequestIdInput = document.getElementById('edit-request-id');
+            editTypeInput = document.getElementById('edit-request-type');
             editDurationSearch = document.getElementById('edit-duration-search');
             editDurationDropdown = document.getElementById('edit-duration-dropdown');
             editReasonSearch = document.getElementById('edit-reason-search');
             editReasonDropdown = document.getElementById('edit-reason-dropdown');
+            editStartDateInput = document.getElementById('edit-date-start');
+            editEndDateInput = document.getElementById('edit-date-end');
             editSingleDateContainer = document.getElementById('edit-single-date-container');
             editDateRangeContainer = document.getElementById('edit-date-range-container');
-            editSingleDateInput = document.getElementById('edit-leave-date-single');
-            editStartDateInput = document.getElementById('edit-leave-date-start');
-            editEndDateInput = document.getElementById('edit-leave-date-end');
-            deleteModal = document.getElementById('delete-modal');
-            deleteConfirmBtn = document.getElementById('delete-confirm-btn');
-            deleteCancelBtn = document.getElementById('delete-cancel-btn');
-            deleteLoadingEl = document.getElementById('delete-loading');
+            editErrorEl = document.getElementById('edit-request-error');
+            cancelEditBtn = document.getElementById('cancel-edit-btn');
+            saveEditBtn = document.getElementById('save-edit-btn');
             
+            // Delete Confirm Modal
+            deleteConfirmModal = document.getElementById('delete-confirm-modal');
+            deleteConfirmText = document.getElementById('delete-confirm-text');
+            cancelDeleteBtn = document.getElementById('cancel-delete-btn');
+            confirmDeleteBtn = document.getElementById('confirm-delete-btn');
+
             // --- Firebase Initialization ---
             try {
                 // Use the hard-coded config
@@ -242,9 +211,12 @@
                 auth = getAuth(app);
                 
                 // Get Canvas appId (still needed for Firestore path)
-                const canvasAppId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+                canvasAppId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+                // Define the correct Firestore paths
                 leaveRequestsCollectionPath = `/artifacts/${canvasAppId}/public/data/leave_requests`;
-                console.log("Using Firestore Path:", leaveRequestsCollectionPath); 
+                outRequestsCollectionPath = `/artifacts/${canvasAppId}/public/data/out_requests`;
+                console.log("Using Firestore Leave Path:", leaveRequestsCollectionPath);
+                console.log("Using Firestore Out Path:", outRequestsCollectionPath);
 
                 // --- Firebase Authentication ---
                 onAuthStateChanged(auth, (user) => {
@@ -276,6 +248,7 @@
                         initializeAppFlow();
                     } else {
                         console.log("Firebase Auth: No user signed in. Attempting anonymous sign-in...");
+                        // If not signed in, attempt anonymous sign-in again (might happen on initial load)
                         signInAnonymously(auth).catch(anonError => {
                              console.error("Error during automatic anonymous sign-in attempt:", anonError);
                              if (criticalErrorDisplay) {
@@ -310,7 +283,7 @@
 
             // --- Main App Logic (to be called after auth is confirmed) ---
             function initializeAppFlow() {
-                console.log("initializeAppFlow called."); 
+                console.log("initializeAppFlow called."); // Log entry
                 function isClient() {
                     const ua = navigator.userAgent || navigator.vendor || window.opera;
                     return (
@@ -347,14 +320,10 @@
                 console.log("Fetching users from Google Sheet...");
                 try {
                     const response = await fetch(GVIZ_URL);
-                    if (!response.ok) {
-                        throw new Error(`Google Sheet fetch failed with status: ${response.status}`);
-                    }
+                    if (!response.ok) throw new Error(`Google Sheet fetch failed with status: ${response.status}`);
                     const text = await response.text();
                     const match = text.match(/google\.visualization\.Query\.setResponse\((.*)\);/s);
-                     if (!match || !match[1]) {
-                        throw new Error("ទម្រង់ការឆ្លើយតបពី Google Sheet មិនត្រឹមត្រូវ");
-                    }
+                     if (!match || !match[1]) throw new Error("ទម្រង់ការឆ្លើយតបពី Google Sheet មិនត្រឹមត្រូវ");
                     const json = JSON.parse(match[1]);
                     
                     if (json.table && json.table.rows && json.table.rows.length > 0) {
@@ -398,6 +367,8 @@
                      console.error(`Dropdown elements not found: inputId=${inputId}, dropdownId=${dropdownId}`);
                      return;
                  }
+                 
+                let currentSelection = null; // Track the value
 
                 function populateDropdown(filter = '') {
                     dropdown.innerHTML = '';
@@ -417,6 +388,7 @@
                         itemEl.addEventListener('mousedown', (e) => {
                             e.preventDefault(); 
                             searchInput.value = item.text;
+                            currentSelection = item.value; // Set selection
                             dropdown.classList.add('hidden');
                             if (onSelectCallback) onSelectCallback(item.value);
                             console.log(`Selected dropdown item: ${item.text} (value: ${item.value})`);
@@ -425,47 +397,61 @@
                     });
                     dropdown.classList.remove('hidden');
                 }
+                
+                function validateSelection() {
+                    const currentValue = searchInput.value;
+                    if (allowCustom) {
+                        currentSelection = currentValue;
+                        if (onSelectCallback) onSelectCallback(currentSelection);
+                        return;
+                    }
+                    
+                    const validItem = items.find(item => item.text === currentValue);
+                    if (validItem) {
+                        currentSelection = validItem.value;
+                    } else {
+                        currentSelection = null;
+                        // Don't clear the input, just notify the callback
+                    }
+                    if (onSelectCallback) onSelectCallback(currentSelection);
+                }
 
                 searchInput.addEventListener('input', () => {
-                    const currentValue = searchInput.value;
-                    populateDropdown(currentValue);
-                    if (allowCustom) {
-                        if (onSelectCallback) onSelectCallback(currentValue); 
-                    } else {
-                         const exactMatch = items.find(item => item.text === currentValue);
-                         if (onSelectCallback) onSelectCallback(exactMatch ? exactMatch.value : null);
-                     }
+                    populateDropdown(searchInput.value);
+                    validateSelection();
                 });
 
                 searchInput.addEventListener('focus', () => {
                      console.log(`Focus on ${inputId}`);
                      populateDropdown(searchInput.value);
+                     validateSelection();
                 });
 
                 searchInput.addEventListener('blur', () => {
                      console.log(`Blur on ${inputId}`);
                     setTimeout(() => {
                         dropdown.classList.add('hidden');
-                        const currentValue = searchInput.value;
-                        const validItem = items.find(item => item.text === currentValue);
-                        if (validItem) {
-                            if (onSelectCallback) onSelectCallback(validItem.value);
-                        } else if (allowCustom && currentValue.trim() !== '') {
-                            if (onSelectCallback) onSelectCallback(currentValue);
-                         } else if (!allowCustom) {
-                             console.log(`Invalid selection on ${inputId}: ${currentValue}`);
-                             if (onSelectCallback) onSelectCallback(null);
-                         }
-                    }, 150); 
+                        validateSelection(); // Validate one last time on blur
+                        console.log(`Final selection for ${inputId} on blur: ${currentSelection}`);
+                    }, 150);
                 });
+                
+                // Return a function to get the current valid selection
+                return () => currentSelection;
             }
 
+            let getLeaveDurationSelection;
+            let getLeaveReasonSelection;
+            let getOutDurationSelection;
+            let getOutReasonSelection;
+            let getEditDurationSelection;
+            let getEditReasonSelection;
 
             function populateUserDropdown(users, inputId, dropdownId, onSelectCallback) {
                 const userItems = users
                     .filter(user => user.id && user.name)
                     .map(user => ({ text: `${user.id} - ${user.name}`, value: user.id }));
-                setupSearchableDropdown(inputId, dropdownId, userItems, onSelectCallback, false); 
+                setupSearchableDropdown(inputId, dropdownId, userItems, onSelectCallback, false); // No custom user IDs
             }
 
             // --- Face Scan Logic ---
@@ -488,7 +474,6 @@
                     modelStatusEl.textContent = 'Error: មិនអាចទាញយក Model បាន';
                 }
             }
-
 
             async function startFaceScan() {
                 console.log("startFaceScan called.");
@@ -547,7 +532,6 @@
                          throw new Error('មិនអាចវិភាគមុខពីរូបថតយោងបានទេ (រូបថតអាចមិនច្បាស់ ឬ Link មិនត្រឹមត្រូវ)។');
                      }
 
-
                     // 3. Start video stream
                     console.log("Requesting camera access...");
                     if (scanStatusEl) scanStatusEl.textContent = 'កំពុងស្នើសុំបើកកាមេរ៉ា...';
@@ -569,7 +553,7 @@
                             const distance = faceapi.euclideanDistance(referenceDescriptor, detections.descriptor);
                             const similarity = (1 - distance).toFixed(2);
                             const threshold = 0.55; 
-                            if (scanDebugEl) scanDebugEl.textContent = `ភាពស្រដៀងគ្នា: ${similarity} (ត្រូវតែ > ${1-threshold})`;
+                            // if (scanDebugEl) scanDebugEl.textContent = `ភាពស្រដៀងគ្នា: ${similarity} (ត្រូវតែ > ${1-threshold})`; // Removed for cleaner UI
 
                             if (distance < threshold) { 
                                 console.log("Face verification successful!", `Distance: ${distance}`);
@@ -585,7 +569,7 @@
                             }
                         } else {
                             if (scanStatusEl) scanStatusEl.textContent = 'រកមិនឃើញផ្ទៃមុខ...';
-                            if (scanDebugEl) scanDebugEl.textContent = '';
+                            // if (scanDebugEl) scanDebugEl.textContent = '';
                         }
                     }, 500); 
 
@@ -599,7 +583,6 @@
                      }, 1500); 
                 }
             }
-
 
             function stopFaceScan() {
                 console.log("Stopping face scan.");
@@ -615,7 +598,6 @@
                      console.log("No active camera stream to stop.");
                  }
             }
-
 
             if (scanFaceBtn) scanFaceBtn.addEventListener('click', startFaceScan);
             if (cancelScanBtn) cancelScanBtn.addEventListener('click', () => {
@@ -645,7 +627,6 @@
                 showLoggedInState(user);
             }
             
-
             function logout() {
                 console.log("Logging out user.");
                 currentUser = null;
@@ -666,10 +647,15 @@
                 if (scanFaceBtn) scanFaceBtn.disabled = true;
                 if (rememberMeCheckbox) rememberMeCheckbox.checked = false;
 
-                if (historyUnsubscribe) {
-                    console.log("Unsubscribing from history listener.");
-                    historyUnsubscribe();
-                    historyUnsubscribe = null;
+                if (historyLeaveUnsubscribe) {
+                    console.log("Unsubscribing from leave history listener.");
+                    historyLeaveUnsubscribe();
+                    historyLeaveUnsubscribe = null;
+                }
+                if (historyOutUnsubscribe) {
+                    console.log("Unsubscribing from out history listener.");
+                    historyOutUnsubscribe();
+                    historyOutUnsubscribe = null;
                 }
                 
                 signInAnonymously(auth).catch(err => console.error("Error signing in anonymously after logout:", err));
@@ -688,6 +674,7 @@
 
                 navigateTo('page-home');
                 
+                // Start listening to history for this user
                 setupHistoryListener(user.id);
             }
             
@@ -741,14 +728,16 @@
                      return; 
                  }
 
+                // Hide nav bar only for request form pages
                 if (bottomNav) {
-                    if (pageId === 'page-request-leave') {
+                    if (pageId === 'page-request-leave' || pageId === 'page-request-out') {
                         bottomNav.classList.add('hidden');
                     } else {
                         bottomNav.classList.remove('hidden');
                     }
                 }
                 
+                // Update nav button active state
                 if (navButtons) {
                     navButtons.forEach(btn => {
                         if (btn.dataset.page === pageId) {
@@ -784,116 +773,154 @@
                  console.warn("Navigation buttons not found during event listener setup.");
              }
 
-            // --- History Page Tab Logic ---
-            if (historyTabLeave && historyTabOut) {
-                historyTabLeave.addEventListener('click', () => {
-                    historyTabLeave.classList.add('border-blue-600', 'text-blue-600');
-                    historyTabLeave.classList.remove('border-transparent', 'text-gray-500', 'hover:text-gray-700', 'hover:border-gray-300');
-                    historyTabOut.classList.add('border-transparent', 'text-gray-500', 'hover:text-gray-700', 'hover:border-gray-300');
-                    historyTabOut.classList.remove('border-blue-600', 'text-blue-600');
-                    // Add logic here to filter for "Leave" requests if needed
-                    // For now, both tabs show the same data
-                    if (historyPlaceholder) historyPlaceholder.classList.add('hidden');
-                    if (historyContainer) historyContainer.classList.remove('hidden');
-                });
-                historyTabOut.addEventListener('click', () => {
-                    historyTabOut.classList.add('border-blue-600', 'text-blue-600');
-                    historyTabOut.classList.remove('border-transparent', 'text-gray-500', 'hover:text-gray-700', 'hover:border-gray-300');
-                    historyTabLeave.classList.add('border-transparent', 'text-gray-500', 'hover:text-gray-700', 'hover:border-gray-300');
-                    historyTabLeave.classList.remove('border-blue-600', 'text-blue-600');
-                    // Add logic here to show "Out" requests
-                    // For now, show a placeholder
-                    if (historyPlaceholder) {
-                        historyPlaceholder.classList.remove('hidden');
-                        historyPlaceholder.innerHTML = '<p class="text-center text-gray-500 mt-4">មុខងារ "ច្បាប់ចេញក្រៅ" មិនទាន់ដំណើរការ</p>';
-                    }
-                    if (historyContainer) historyContainer.classList.add('hidden');
-                });
+            // --- Date Formatting Helper ---
+            function formatDate(date) {
+                if (!date) return 'N/A';
+                let d;
+                if (date.toDate) { // Check if it's a Firestore Timestamp
+                    d = date.toDate();
+                } else if (typeof date === 'string' && date.includes('-')) { // YYYY-MM-DD
+                    const parts = date.split('-');
+                    d = new Date(parts[0], parts[1] - 1, parts[2]);
+                } else if (typeof date === 'string' && date.includes('/')) { // MM/DD/YYYY or DD/MM/YYYY
+                    // Assuming dd/mm/yyyy format based on request
+                    const parts = date.split('/');
+                    d = new Date(parts[2], parts[1] - 1, parts[0]);
+                } else if (date instanceof Date) {
+                    d = date;
+                } else {
+                    console.warn("Could not parse date:", date);
+                    return 'Invalid Date';
+                }
+                
+                if (isNaN(d.getTime())) {
+                     console.warn("Parsed invalid date:", d);
+                     return 'Invalid Date';
+                 }
+
+                const mm = String(d.getMonth() + 1).padStart(2, '0');
+                const dd = String(d.getDate()).padStart(2, '0');
+                const yyyy = d.getFullYear();
+                return `${dd}/${mm}/${yyyy}`;
+            }
+            
+            function formatTime(date) {
+                 if (!date || !date.toDate) return ''; // Only format Firestore Timestamps
+                 const d = date.toDate();
+                 let hours = d.getHours();
+                 const minutes = String(d.getMinutes()).padStart(2, '0');
+                 const ampm = hours >= 12 ? 'រសៀល' : 'ព្រឹក';
+                 hours = hours % 12;
+                 hours = hours ? hours : 12; // Hour '0' should be '12'
+                 return `${hours}:${minutes} ${ampm}`;
+             }
+
+            function getTodayString_DDMMYYYY() {
+                const today = new Date();
+                const dd = String(today.getDate()).padStart(2, '0');
+                const mm = String(today.getMonth() + 1).padStart(2, '0');
+                const yyyy = today.getFullYear();
+                return `${dd}/${mm}/${yyyy}`;
             }
 
+            function getTodayString_YYYYMMDD() {
+                const today = new Date();
+                const yyyy = today.getFullYear();
+                const mm = String(today.getMonth() + 1).padStart(2, '0');
+                const dd = String(today.getDate()).padStart(2, '0');
+                return `${yyyy}-${mm}-${dd}`;
+            }
 
-            // --- Leave Request Logic ---
-            selectedDuration = null; 
-            selectedReason = null; 
+            function addDays_YYYYMMDD(dateString_YYYYMMDD, days) {
+                try {
+                     const date = new Date(dateString_YYYYMMDD);
+                     if (isNaN(date.getTime())) {
+                         console.error("Invalid start date provided to addDays:", dateString_YYYYMMDD);
+                         return getTodayString_YYYYMMDD(); 
+                     }
+                    date.setDate(date.getDate() + Math.ceil(days) - 1); 
+                    const yyyy = date.getFullYear();
+                    const mm = String(date.getMonth() + 1).padStart(2, '0');
+                    const dd = String(date.getDate()).padStart(2, '0');
+                    return `${yyyy}-${mm}-${dd}`;
+                } catch (e) {
+                     console.error("Error in addDays function:", e);
+                     return getTodayString_YYYYMMDD(); 
+                 }
+            }
+            
+            function convertYYYYMMDDtoDDMMYYYY(dateString_YYYYMMDD) {
+                 if (!dateString_YYYYMMDD || !dateString_YYYYMMDD.includes('-')) return 'N/A';
+                 const parts = dateString_YYYYMMDD.split('-');
+                 if (parts.length !== 3) return 'N/A';
+                 return `${parts[2]}/${parts[1]}/${parts[0]}`;
+             }
+             
+            function convertDDMMYYYYtoYYYYMMDD(dateString_DDMMYYYY) {
+                if (!dateString_DDMMYYYY || !dateString_DDMMYYYY.includes('/')) return 'N/A';
+                 const parts = dateString_DDMMYYYY.split('/');
+                 if (parts.length !== 3) return 'N/A';
+                 return `${parts[2]}-${parts[1]}-${parts[0]}`;
+            }
 
-            // (updateDateFields function - handles logic for request AND edit forms)
-            function updateDateFields(duration, formType = 'request') {
-                console.log(`Duration selected for ${formType}:`, duration);
-                
-                let sContainer, rContainer, sInput, stInput, eInput;
-                
-                if(formType === 'edit') {
-                    sContainer = editSingleDateContainer;
-                    rContainer = editDateRangeContainer;
-                    sInput = editSingleDateInput;
-                    stInput = editStartDateInput;
-                    eInput = editEndDateInput;
-                    // Update the selected duration for the edit form
-                    // This is handled by the onSelectCallback
-                } else {
-                    sContainer = singleDateContainer;
-                    rContainer = dateRangeContainer;
-                    sInput = singleDateInput;
-                    stInput = startDateInput;
-                    eInput = endDateInput;
-                    selectedDuration = duration; // Update global for new request
-                }
+            // --- LEAVE Request Logic (ឈប់សម្រាក) ---
+            const leaveDurations = [
+                "មួយព្រឹក", "មួយរសៀល", "មួយយប់", "មួយថ្ងៃ", "មួយថ្ងៃកន្លះ", "ពីរថ្ងៃ", "ពីរថ្ងៃកន្លះ",
+                "បីថ្ងៃ", "បីថ្ងៃកន្លះ", "បួនថ្ងៃ", "បួនថ្ងៃកន្លះ", "ប្រាំថ្ងៃ", "ប្រាំថ្ងៃកន្លះ",
+                "ប្រាំមួយថ្ងៃ", "ប្រាំមួយថ្ងៃកន្លះ", "ប្រាំពីរថ្ងៃ"
+            ];
+            const leaveDurationItems = leaveDurations.map(d => ({ text: d, value: d }));
+            
+            const leaveReasons = ["ឈឺក្បាល", "ចុកពោះ", "គ្រុនក្ដៅ", "ផ្ដាសាយ"];
+            const leaveReasonItems = leaveReasons.map(r => ({ text: r, value: r }));
+            
+            const leaveDurationToDaysMap = {
+                "មួយព្រឹក": 1, "មួយរសៀល": 1, "មួយយប់": 1, "មួយថ្ងៃ": 1,
+                "មួយថ្ងៃកន្លះ": 1.5, "ពីរថ្ងៃ": 2, "ពីរថ្ងៃកន្លះ": 2.5,
+                "បីថ្ងៃ": 3, "បីថ្ងៃកន្លះ": 3.5, "បួនថ្ងៃ": 4, "បួនថ្ងៃកន្លះ": 4.5,
+                "ប្រាំថ្ងៃ": 5, "ប្រាំថ្ងៃកន្លះ": 5.5, "ប្រាំមួយថ្ងៃ": 6, "ប្រាំមួយថ្ងៃកន្លះ": 6.5,
+                "ប្រាំពីរថ្ងៃ": 7
+            };
+            const leaveSingleDayDurations = ["មួយព្រឹក", "មួយរសៀល", "មួយយប់", "មួយថ្ងៃ"];
 
-                const today = getTodayString();
-
-                if (!sContainer || !rContainer || !sInput || !stInput || !eInput) {
-                    console.error("Date input elements not found in updateDateFields for:", formType);
-                    return;
-                }
+            function updateLeaveDateFields(duration) {
+                console.log("Leave Duration selected:", duration);
+                const today_YYYYMMDD = getTodayString_YYYYMMDD();
+                const today_DDMMYYYY = getTodayString_DDMMYYYY();
 
                 if (!duration) {
-                    sContainer.classList.add('hidden');
-                    rContainer.classList.add('hidden');
+                    if(leaveSingleDateContainer) leaveSingleDateContainer.classList.add('hidden');
+                    if(leaveDateRangeContainer) leaveDateRangeContainer.classList.add('hidden');
                     return;
                 }
 
-                if (singleDayDurations.includes(duration)) {
-                    sContainer.classList.remove('hidden');
-                    rContainer.classList.add('hidden');
-                    sInput.value = today;
-                    console.log(`Set single date (${formType}) to:`, today);
+                if (leaveSingleDayDurations.includes(duration)) {
+                    if(leaveSingleDateContainer) leaveSingleDateContainer.classList.remove('hidden');
+                    if(leaveDateRangeContainer) leaveDateRangeContainer.classList.add('hidden');
+                    if(leaveSingleDateInput) leaveSingleDateInput.value = today_DDMMYYYY; // Display dd/mm/yyyy
+                    console.log("Set leave single date to:", today_DDMMYYYY);
                 } else {
-                    sContainer.classList.add('hidden');
-                    rContainer.classList.remove('hidden');
-                    stInput.value = today;
-                    const days = durationToDaysMap[duration] || 0;
-                    const endDateValue = addDays(today, days);
-                    eInput.value = endDateValue;
-                    eInput.min = today; 
-                    console.log(`Set date range (${formType}): ${today} to ${endDateValue}`);
+                    if(leaveSingleDateContainer) leaveSingleDateContainer.classList.add('hidden');
+                    if(leaveDateRangeContainer) leaveDateRangeContainer.classList.remove('hidden');
+                    if(leaveStartDateInput) leaveStartDateInput.value = today_DDMMYYYY; // Display dd/mm/yyyy
+                    
+                    const days = leaveDurationToDaysMap[duration] || 0;
+                    const endDate_YYYYMMDD = addDays_YYYYMMDD(today_YYYYMMDD, days);
+                    const endDate_DDMMYYYY = convertYYYYMMDDtoDDMMYYYY(endDate_YYYYMMDD);
+                    
+                    if(leaveEndDateInput) {
+                        leaveEndDateInput.value = endDate_DDMMYYYY; // Display dd/mm/yyyy
+                        leaveEndDateInput.min = today_YYYYMMDD; // Set min in YYYY-MM-DD format for browser
+                    }
+                    console.log(`Set leave date range: ${today_DDMMYYYY} to ${endDate_DDMMYYYY}`);
                 }
             }
 
-
-            // Setup the duration dropdown (New Request)
-            setupSearchableDropdown('duration-search', 'duration-dropdown', durationItems, (duration) => {
-                updateDateFields(duration, 'request');
-                selectedDuration = duration; // Explicitly set global
-            }, false); // No custom durations
+            // Setup the leave duration dropdown
+            getLeaveDurationSelection = setupSearchableDropdown('leave-duration-search', 'leave-duration-dropdown', leaveDurationItems, updateLeaveDateFields, false); // No custom durations
+            // Setup the leave reason dropdown
+            getLeaveReasonSelection = setupSearchableDropdown('leave-reason-search', 'leave-reason-dropdown', leaveReasonItems, null, true); // Allow custom reasons
             
-            // Setup the reason dropdown (New Request)
-            setupSearchableDropdown('reason-search', 'reason-dropdown', reasonItems, (reason) => {
-                selectedReason = reason; 
-            }, true); // Allow custom reasons
-            
-            // Setup the duration dropdown (Edit Modal)
-            setupSearchableDropdown('edit-duration-search', 'edit-duration-dropdown', durationItems, (duration) => {
-                updateDateFields(duration, 'edit');
-                // The selected value for edit is stored on the element/variable directly in openEditModal
-            }, false); 
-            
-            // Setup the reason dropdown (Edit Modal)
-            setupSearchableDropdown('edit-reason-search', 'edit-reason-dropdown', reasonItems, (reason) => {
-                // The selected value for edit is stored on the element/variable directly
-            }, true); 
-
-
-            // Open Leave Request Form
             if (openLeaveRequestBtn) openLeaveRequestBtn.addEventListener('click', () => {
                 console.log("Opening leave request form.");
                  if (!currentUser) {
@@ -902,132 +929,269 @@
                      return;
                  }
                 
-                 const reqPhoto = document.getElementById('request-user-photo');
-                 const reqName = document.getElementById('request-user-name');
-                 const reqId = document.getElementById('request-user-id');
-                 const reqDept = document.getElementById('request-user-department');
+                 const reqPhoto = document.getElementById('leave-request-user-photo');
+                 const reqName = document.getElementById('leave-request-user-name');
+                 const reqId = document.getElementById('leave-request-user-id');
+                 const reqDept = document.getElementById('leave-request-user-department');
 
                  if(reqPhoto) reqPhoto.src = currentUser.photo || 'https://placehold.co/60x60/e2e8f0/64748b?text=User';
                  if(reqName) reqName.textContent = currentUser.name;
                  if(reqId) reqId.textContent = currentUser.id;
                  if(reqDept) reqDept.textContent = currentUser.department || 'មិនមាន';
                 
-                if (durationSearchInput) durationSearchInput.value = '';
-                if (reasonSearchInput) reasonSearchInput.value = '';
-                selectedDuration = null;
-                selectedReason = null;
-                if (singleDateContainer) singleDateContainer.classList.add('hidden');
-                if (dateRangeContainer) dateRangeContainer.classList.add('hidden');
-                if (requestErrorEl) requestErrorEl.classList.add('hidden');
-                if (requestLoadingEl) requestLoadingEl.classList.add('hidden');
+                if (leaveDurationSearchInput) leaveDurationSearchInput.value = '';
+                if (leaveReasonSearchInput) leaveReasonSearchInput.value = '';
+                if (leaveSingleDateContainer) leaveSingleDateContainer.classList.add('hidden');
+                if (leaveDateRangeContainer) leaveDateRangeContainer.classList.add('hidden');
+                if (leaveRequestErrorEl) leaveRequestErrorEl.classList.add('hidden');
+                if (leaveRequestLoadingEl) leaveRequestLoadingEl.classList.add('hidden');
                 if (submitLeaveRequestBtn) submitLeaveRequestBtn.disabled = false;
                 
                 navigateTo('page-request-leave');
             });
 
-            // Cancel Leave Request
             if (cancelLeaveRequestBtn) cancelLeaveRequestBtn.addEventListener('click', () => {
                 console.log("Cancelling leave request.");
                 navigateTo('page-home'); 
             });
 
-            // Submit Leave Request
             if (submitLeaveRequestBtn) submitLeaveRequestBtn.addEventListener('click', async () => {
                  console.log("Submit leave request button clicked.");
                  
-                 // --- Validation ---
-                 selectedReason = reasonSearchInput ? reasonSearchInput.value.trim() : null; // Get reason on submit
-                 
-                 const validDuration = durations.includes(selectedDuration); // Check if selectedDuration is valid
-                 
-                 if (!validDuration) {
-                     console.warn("Submit failed: Duration not valid or not selected.");
-                     if (requestErrorEl) {
-                         requestErrorEl.textContent = 'សូមជ្រើសរើស "រយៈពេល" ពីក្នុងបញ្ជីឲ្យបានត្រឹមត្រូវ។';
-                         requestErrorEl.classList.remove('hidden');
-                     }
-                     return;
-                 }
-                 
-                 if (!selectedReason || selectedReason === '') {
-                     console.warn("Submit failed: Reason is empty.");
-                    if (requestErrorEl) {
-                        requestErrorEl.textContent = 'សូមបំពេញ "មូលហេតុ" ជាមុនសិន។';
-                        requestErrorEl.classList.remove('hidden');
-                    }
-                    return;
-                }
-                 
+                 const selectedDuration = getLeaveDurationSelection ? getLeaveDurationSelection() : null;
+                 const selectedReason = getLeaveReasonSelection ? getLeaveReasonSelection() : null;
+
+                 // Validation
                  if (!currentUser || !currentUser.id) {
-                     console.error("Cannot submit request: currentUser is missing or invalid.");
                      alert("មានបញ្ហា៖ មិនអាចបញ្ជាក់អ្នកប្រើប្រាស់បានទេ។ សូមព្យាយាម Login ម្ដងទៀត។");
                      return;
                  }
+                if (!selectedDuration) {
+                    if (leaveRequestErrorEl) {
+                        leaveRequestErrorEl.textContent = 'សូមជ្រើសរើស "រយៈពេល" ពីក្នុងបញ្ជី។';
+                        leaveRequestErrorEl.classList.remove('hidden');
+                    }
+                    return;
+                }
                 
-                if (requestErrorEl) requestErrorEl.classList.add('hidden');
-                if (requestLoadingEl) requestLoadingEl.classList.remove('hidden');
+                if (!selectedReason || selectedReason.trim() === '') {
+                    if (leaveRequestErrorEl) {
+                        leaveRequestErrorEl.textContent = 'សូមបំពេញ "មូលហេតុ" ជាមុនសិន។';
+                        leaveRequestErrorEl.classList.remove('hidden');
+                    }
+                    return;
+                }
+                
+                if (leaveRequestErrorEl) leaveRequestErrorEl.classList.add('hidden');
+                if (leaveRequestLoadingEl) leaveRequestLoadingEl.classList.remove('hidden');
                 if (submitLeaveRequestBtn) submitLeaveRequestBtn.disabled = true;
-                console.log("Submitting leave request with:", { selectedDuration, selectedReason });
-
 
                 try {
-                    const startDate = singleDayDurations.includes(selectedDuration) 
-                        ? (singleDateInput ? singleDateInput.value : getTodayString())
-                        : (startDateInput ? startDateInput.value : getTodayString());
-                    const endDate = singleDayDurations.includes(selectedDuration) 
-                        ? startDate 
-                        : (endDateInput ? endDateInput.value : getTodayString());
+                    const startDate_DDMMYYYY = leaveSingleDayDurations.includes(selectedDuration) 
+                        ? (leaveSingleDateInput ? leaveSingleDateInput.value : getTodayString_DDMMYYYY())
+                        : (leaveStartDateInput ? leaveStartDateInput.value : getTodayString_DDMMYYYY());
+                    const endDate_DDMMYYYY = leaveSingleDayDurations.includes(selectedDuration) 
+                        ? startDate_DDMMYYYY
+                        : (leaveEndDateInput ? leaveEndDateInput.value : getTodayString_DDMMYYYY());
                         
-                     console.log("Calculated dates:", { startDate, endDate });
+                    // Convert dates to YYYY-MM-DD for consistency, but store DD/MM/YYYY
+                    const startDate_YYYYMMDD = convertDDMMYYYYtoYYYYMMDD(startDate_DDMMYYYY);
+                    const endDate_YYYYMMDD = convertDDMMYYYYtoYYYYMMDD(endDate_DDMMYYYY);
                     
-                    if (new Date(endDate) < new Date(startDate)) {
+                    if (new Date(endDate_YYYYMMDD) < new Date(startDate_YYYYMMDD)) {
                          throw new Error('"ថ្ងៃបញ្ចប់" មិនអាចនៅមុន "ថ្ងៃចាប់ផ្តើម" បានទេ។');
                     }
 
                     const requestId = `leave_${Date.now()}`;
-                    console.log("Generated Request ID:", requestId);
+                    const requestData = {
+                        userId: currentUser.id, 
+                        name: currentUser.name,
+                        department: currentUser.department || 'N/A',
+                        photo: currentUser.photo || null, 
+                        duration: selectedDuration,
+                        reason: selectedReason.trim(),
+                        startDate: startDate_DDMMYYYY, // Store as dd/mm/yyyy
+                        endDate: endDate_DDMMYYYY, // Store as dd/mm/yyyy
+                        status: 'pending', 
+                        requestedAt: serverTimestamp(), 
+                        requestId: requestId,
+                        firestoreUserId: auth.currentUser ? auth.currentUser.uid : 'unknown_auth_user',
+                        type: 'leave' // Add type
+                    };
+                    
+                    const requestRef = doc(db, leaveRequestsCollectionPath, requestId);
+                    await setDoc(requestRef, requestData);
+                    console.log("Firestore (leave) write successful.");
+
+                    // --- Send Telegram Notification ---
+                    const dateString = (startDate_DDMMYYYY === endDate_DDMMYYYY) ? startDate_DDMMYYYY : `ពី ${startDate_DDMMYYYY} ដល់ ${endDate_DDMMYYYY}`;
+                    
+                    let message = `<b>🔔 សំណើសុំច្បាប់ឈប់សម្រាក 🔔</b>\n\n`;
+                    message += `<b>ឈ្មោះ:</b> ${requestData.name}\n`;
+                    message += `<b>អត្តលេខ:</b> ${requestData.userId}\n`;
+                    message += `<b>ផ្នែក:</b> ${requestData.department}\n`;
+                    message += `<b>រយៈពេល:</b> ${requestData.duration}\n`;
+                    message += `<b>កាលបរិច្ឆេទ:</b> ${dateString}\n`;
+                    message += `<b>មូលហេតុ:</b> ${requestData.reason}\n\n`;
+                    message += `(សូមចូល Firestore ដើម្បីពិនិត្យ ID: \`${requestId}\`)`;
+                    
+                    await sendTelegramNotification(message);
+
+                    if (requestLoadingEl) requestLoadingEl.classList.add('hidden');
+                    alert('សំណើរបស់អ្នកត្រូវបានផ្ញើដោយជោគជ័យ!');
+                    navigateTo('page-history'); 
+
+                } catch (error) {
+                    console.error("Error submitting leave request:", error);
+                     let displayError = error.message;
+                     if (error.code && error.code.includes('permission-denied')) {
+                         displayError = 'Missing or insufficient permissions. សូមពិនិត្យ Firestore Rules។';
+                     }
+                    if (leaveRequestErrorEl) {
+                        leaveRequestErrorEl.textContent = `Error: ${displayError}`;
+                        leaveRequestErrorEl.classList.remove('hidden');
+                    }
+                    if (leaveRequestLoadingEl) leaveRequestLoadingEl.classList.add('hidden');
+                    if (submitLeaveRequestBtn) submitLeaveRequestBtn.disabled = false; 
+                }
+            });
+
+            // --- OUT Request Logic (ចេញក្រៅ) ---
+            const outDurations = ["មួយព្រឹក", "មួយរសៀល", "មួយថ្ងៃ"];
+            const outDurationItems = outDurations.map(d => ({ text: d, value: d }));
+            
+            const outReasons = ["ទៅផ្សារ", "ទៅកាត់សក់", "ទៅភ្នំពេញ", "ទៅពេទ្យ", "ទៅយកអីវ៉ាន់"];
+            const outReasonItems = outReasons.map(r => ({ text: r, value: r }));
+
+            // Setup the out duration dropdown
+            getOutDurationSelection = setupSearchableDropdown('out-duration-search', 'out-duration-dropdown', outDurationItems, null, false); // No custom durations
+            // Setup the out reason dropdown
+            getOutReasonSelection = setupSearchableDropdown('out-reason-search', 'out-reason-dropdown', outReasonItems, null, true); // Allow custom reasons
+
+            if (openOutRequestBtn) openOutRequestBtn.addEventListener('click', () => {
+                console.log("Opening out request form.");
+                 if (!currentUser) {
+                     alert("សូម Login ជាមុនសិន។");
+                     return;
+                 }
+                
+                 const reqPhoto = document.getElementById('out-request-user-photo');
+                 const reqName = document.getElementById('out-request-user-name');
+                 const reqId = document.getElementById('out-request-user-id');
+                 const reqDept = document.getElementById('out-request-user-department');
+
+                 if(reqPhoto) reqPhoto.src = currentUser.photo || 'https://placehold.co/60x60/e2e8f0/64748b?text=User';
+                 if(reqName) reqName.textContent = currentUser.name;
+                 if(reqId) reqId.textContent = currentUser.id;
+                 if(reqDept) reqDept.textContent = currentUser.department || 'មិនមាន';
+                
+                if (outDurationSearchInput) outDurationSearchInput.value = '';
+                if (outReasonSearchInput) outReasonSearchInput.value = '';
+                if (outDateInput) outDateInput.value = getTodayString_DDMMYYYY(); // Set today's date
+                if (outRequestErrorEl) outRequestErrorEl.classList.add('hidden');
+                if (outRequestLoadingEl) outRequestLoadingEl.classList.add('hidden');
+                if (submitOutRequestBtn) submitOutRequestBtn.disabled = false;
+                
+                navigateTo('page-request-out');
+            });
+            
+            if (cancelOutRequestBtn) cancelOutRequestBtn.addEventListener('click', () => {
+                 console.log("Cancelling out request.");
+                 navigateTo('page-home');
+            });
+            
+            if (submitOutRequestBtn) submitOutRequestBtn.addEventListener('click', async () => {
+                 console.log("Submit out request button clicked.");
+                 
+                 const selectedDuration = getOutDurationSelection ? getOutDurationSelection() : null;
+                 const selectedReason = getOutReasonSelection ? getOutReasonSelection() : null;
+
+                 // Validation
+                 if (!currentUser || !currentUser.id) {
+                     alert("មានបញ្ហា៖ មិនអាចបញ្ជាក់អ្នកប្រើប្រាស់បានទេ។ សូមព្យាយាម Login ម្ដងទៀត។");
+                     return;
+                 }
+                if (!selectedDuration) {
+                    if (outRequestErrorEl) {
+                        outRequestErrorEl.textContent = 'សូមជ្រើសរើស "រយៈពេល" ពីក្នុងបញ្ជី។';
+                        outRequestErrorEl.classList.remove('hidden');
+                    }
+                    return;
+                }
+                
+                if (!selectedReason || selectedReason.trim() === '') {
+                    if (outRequestErrorEl) {
+                        outRequestErrorEl.textContent = 'សូមបំពេញ "មូលហេតុ" ជាមុនសិន។';
+                        outRequestErrorEl.classList.remove('hidden');
+                    }
+                    return;
+                }
+                
+                if (outRequestErrorEl) outRequestErrorEl.classList.add('hidden');
+                if (outRequestLoadingEl) outRequestLoadingEl.classList.remove('hidden');
+                if (submitOutRequestBtn) submitOutRequestBtn.disabled = true;
+
+                try {
+                    const date_DDMMYYYY = outDateInput ? outDateInput.value : getTodayString_DDMMYYYY();
+                    const requestId = `out_${Date.now()}`;
                     
                     const requestData = {
                         userId: currentUser.id, 
                         name: currentUser.name,
-                        department: currentUser.department || 'N/A', 
+                        department: currentUser.department || 'N/A',
                         photo: currentUser.photo || null, 
                         duration: selectedDuration,
-                        reason: selectedReason,
-                        startDate: startDate,
-                        endDate: endDate,
+                        reason: selectedReason.trim(),
+                        startDate: date_DDMMYYYY, // Store as dd/mm/yyyy
+                        endDate: date_DDMMYYYY, // Store as dd/mm/yyyy
                         status: 'pending', 
                         requestedAt: serverTimestamp(), 
                         requestId: requestId,
-                         firestoreUserId: auth.currentUser ? auth.currentUser.uid : 'unknown_auth_user'
+                        firestoreUserId: auth.currentUser ? auth.currentUser.uid : 'unknown_auth_user',
+                        type: 'out' // Add type
                     };
                     
-                     console.log("Request data prepared for Firestore:", requestData);
-
-                    if (!db || !leaveRequestsCollectionPath) {
-                        throw new Error("Firestore DB or Collection Path is not initialized.");
-                    }
-                    const requestRef = doc(db, leaveRequestsCollectionPath, requestId);
-                    console.log("Attempting to write to Firestore path:", leaveRequestsCollectionPath, "with ID:", requestId);
+                    const requestRef = doc(db, outRequestsCollectionPath, requestId);
                     await setDoc(requestRef, requestData);
-                    console.log("Firestore write successful.");
-
+                    console.log("Firestore (out) write successful.");
 
                     // --- Send Telegram Notification ---
-                    const formattedStartDate = formatFirebaseDate(startDate);
-                    const formattedEndDate = formatFirebaseDate(endDate);
-                    const dateString = (startDate === endDate) ? formattedStartDate : `ពី ${formattedStartDate} ដល់ ${formattedEndDate}`;
-                    
-                    let message = `<b>🔔 សំណើសុំច្បាប់ថ្មី 🔔</b>\n\n`;
-                    message += `<b>ឈ្មោះ:</b>     ${requestData.name}\n`;
-                    message += `<b>អត្តលេខ:</b>   ${requestData.userId}\n`;
-                    message += `<b>ផ្នែក:</b>      ${requestData.department}\n`;
-                    message += `<b>រយៈពេល:</b>  ${requestData.duration}\n`;
-                    message += `<b>កាលបរិច្ឆេទ:</b> ${dateString}\n`;
-                    message += `<b>មូលហេតុ:</b>  ${requestData.reason}\n\n`;
+                    let message = `<b>🔔 សំណើសុំច្បាប់ចេញក្រៅ 🔔</b>\n\n`;
+                    message += `<b>ឈ្មោះ:</b> ${requestData.name}\n`;
+                    message += `<b>អត្តលេខ:</b> ${requestData.userId}\n`;
+                    message += `<b>ផ្នែក:</b> ${requestData.department}\n`;
+                    message += `<b>រយៈពេល:</b> ${requestData.duration}\n`;
+                    message += `<b>កាលបរិច្ឆេទ:</b> ${requestData.startDate}\n`;
+                    message += `<b>មូលហេតុ:</b> ${requestData.reason}\n\n`;
                     message += `(សូមចូល Firestore ដើម្បីពិនិត្យ ID: \`${requestId}\`)`;
+                    
+                    await sendTelegramNotification(message);
 
-                    console.log("Sending Telegram notification...");
+                    if (requestLoadingEl) requestLoadingEl.classList.add('hidden');
+                    alert('សំណើរបស់អ្នកត្រូវបានផ្ញើដោយជោគជ័យ!');
+                    navigateTo('page-history'); 
+                    // Activate the "Out" tab
+                    if (historyTabButtons) showHistoryTab('history-out');
+
+                } catch (error) {
+                    console.error("Error submitting out request:", error);
+                     let displayError = error.message;
+                     if (error.code && error.code.includes('permission-denied')) {
+                         displayError = 'Missing or insufficient permissions. សូមពិនិត្យ Firestore Rules។';
+                     }
+                    if (outRequestErrorEl) {
+                        outRequestErrorEl.textContent = `Error: ${displayError}`;
+                        outRequestErrorEl.classList.remove('hidden');
+                    }
+                    if (outRequestLoadingEl) outRequestLoadingEl.classList.add('hidden');
+                    if (submitOutRequestBtn) submitOutRequestBtn.disabled = false; 
+                }
+            });
+            
+            // --- Telegram Helper ---
+            async function sendTelegramNotification(message) {
+                 console.log("Sending Telegram notification...");
+                 try {
                     const telegramUrl = `https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`;
                      const telegramResponse = await fetch(telegramUrl, {
                         method: 'POST',
@@ -1044,449 +1208,510 @@
                      } else {
                          console.log("Telegram notification sent successfully.");
                      }
+                 } catch (error) {
+                     console.error("Failed to send Telegram message:", error);
+                 }
+            }
 
-
-                    // Success
-                    if (requestLoadingEl) requestLoadingEl.classList.add('hidden');
-                    alert('សំណើរបស់អ្នកត្រូវបានផ្ញើដោយជោគជ័យ!');
-                    navigateTo('page-history'); 
-
-                } catch (error) {
-                    console.error("Error submitting leave request:", error);
-                     let displayError = error.message;
-                     if (error.code && error.code.includes('permission-denied')) {
-                         displayError = 'Missing or insufficient permissions. សូមពិនិត្យ Firestore Rules។';
-                     }
-                    if (requestErrorEl) {
-                        requestErrorEl.textContent = `Error: ${displayError}`;
-                        requestErrorEl.classList.remove('hidden');
-                    }
-                    if (requestLoadingEl) requestLoadingEl.classList.add('hidden');
-                    if (submitLeaveRequestBtn) submitLeaveRequestBtn.disabled = false; 
-                }
-            });
 
             // --- History Page Logic (Real-time) ---
+            
+            // History Tab switching
+            if (historyTabButtons) {
+                historyTabButtons.forEach(button => {
+                    button.addEventListener('click', () => {
+                        const tabId = button.dataset.tab;
+                        showHistoryTab(tabId);
+                    });
+                });
+            }
+            
+            function showHistoryTab(tabId) {
+                if (historyTabButtons) {
+                    historyTabButtons.forEach(btn => {
+                        if (btn.dataset.tab === tabId) {
+                            btn.classList.add('border-blue-600', 'text-blue-600');
+                            btn.classList.remove('border-transparent', 'text-gray-500');
+                        } else {
+                            btn.classList.remove('border-blue-600', 'text-blue-600');
+                            btn.classList.add('border-transparent', 'text-gray-500');
+                        }
+                    });
+                }
+                if (historyTabPanels) {
+                     historyTabPanels.forEach(panel => {
+                         if (panel.id === tabId) {
+                             panel.classList.remove('hidden');
+                         } else {
+                             panel.classList.add('hidden');
+                         }
+                     });
+                 }
+                 console.log("Switched to history tab:", tabId);
+            }
+
             function setupHistoryListener(currentEmployeeId) {
-                console.log("Setting up history listener for employee ID:", currentEmployeeId);
-                if (historyUnsubscribe) {
-                     console.log("Detaching previous history listener.");
-                    historyUnsubscribe(); 
+                console.log("Setting up ALL history listeners for employee ID:", currentEmployeeId);
+                
+                if (historyLeaveUnsubscribe) {
+                     console.log("Detaching previous LEAVE history listener.");
+                    historyLeaveUnsubscribe(); 
+                }
+                if (historyOutUnsubscribe) {
+                     console.log("Detaching previous OUT history listener.");
+                    historyOutUnsubscribe(); 
                 }
                 
-                if (!db || !leaveRequestsCollectionPath || !currentEmployeeId) {
-                    console.error("Firestore DB, Path, or UserID is not initialized. Cannot setup history listener.");
+                if (!db || !leaveRequestsCollectionPath || !outRequestsCollectionPath) {
+                    console.error("Firestore DB or Collection Paths are not initialized. Cannot setup history listeners.");
                     return;
                 }
                 
-                // --- Date Filter: Current Month Only ---
+                // --- Get date range for current month ---
                 const now = new Date();
-                const year = now.getFullYear();
-                const month = now.getMonth(); // 0-11
+                const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+                const lastDayOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59); // End of last day
                 
-                // Start of the current month
-                const startOfMonth = new Date(year, month, 1, 0, 0, 0); 
-                // Start of the *next* month
-                const startOfNextMonth = new Date(year, month + 1, 1, 0, 0, 0); 
+                const startTimestamp = Timestamp.fromDate(firstDayOfMonth);
+                const endTimestamp = Timestamp.fromDate(lastDayOfMonth);
+                console.log("History date range:", firstDayOfMonth.toString(), "to", lastDayOfMonth.toString());
 
-                const startTimestamp = Timestamp.fromDate(startOfMonth);
-                const endTimestamp = Timestamp.fromDate(startOfNextMonth);
-                 
-                console.log(`Querying collection '${leaveRequestsCollectionPath}' where 'userId' == '${currentEmployeeId}' AND 'requestedAt' >= ${startOfMonth} AND < ${startOfNextMonth}`);
-                 
-                const historyQuery = query(
+                // --- Listener for LEAVE requests ---
+                const leaveHistoryQuery = query(
                     collection(db, leaveRequestsCollectionPath),
                     where("userId", "==", currentEmployeeId),
                     where("requestedAt", ">=", startTimestamp),
-                    where("requestedAt", "<", endTimestamp)
-                    // Note: Sorting by 'requestedAt' here requires a composite index
-                    // orderBy("requestedAt", "desc") 
+                    where("requestedAt", "<=", endTimestamp)
                 );
-
-                historyUnsubscribe = onSnapshot(historyQuery, (snapshot) => {
-                     console.log(`Received history snapshot. Empty: ${snapshot.empty}, Size: ${snapshot.size}`);
-                    if (snapshot.empty) {
-                        if (historyPlaceholder) historyPlaceholder.classList.remove('hidden');
-                        if (historyContainer) historyContainer.innerHTML = '<p class="text-center text-gray-500 mt-4">មិនទាន់មានប្រវត្តិសំណើ (សម្រាប់ខែនេះ)</p>'; 
-                    } else {
-                        if (historyPlaceholder) historyPlaceholder.classList.add('hidden');
-                        if (historyContainer) historyContainer.innerHTML = ''; 
-                        
-                        const requests = [];
-                        snapshot.forEach(doc => {
-                            requests.push(doc.data());
-                        });
-                        
-                        // --- Custom Sorting (Pending First) ---
-                        requests.sort((a, b) => {
-                            const statusPriority = (status) => {
-                                if (status === 'pending' || status === 'editing') return 1;
-                                return 0;
-                            };
-                            
-                            const priorityA = statusPriority(a.status);
-                            const priorityB = statusPriority(b.status);
-
-                            if (priorityA !== priorityB) {
-                                return priorityB - priorityA; // Higher priority (1) comes first
-                            }
-
-                            // If priority is the same, sort by newest (requestedAt)
-                            const timeA = a.requestedAt?.toMillis ? a.requestedAt.toMillis() : 0;
-                            const timeB = b.requestedAt?.toMillis ? b.requestedAt.toMillis() : 0;
-                            return timeB - timeA; // Descending order
-                        });
-                        
-                        console.log(`Rendering ${requests.length} history items (sorted).`);
-                        requests.forEach(renderHistoryCard);
-                    }
+                
+                historyLeaveUnsubscribe = onSnapshot(leaveHistoryQuery, (snapshot) => {
+                     console.log(`Received LEAVE history snapshot. Empty: ${snapshot.empty}, Size: ${snapshot.size}`);
+                     const requests = [];
+                     snapshot.forEach(doc => requests.push(doc.data()));
+                     renderHistoryCards(requests, 'leave');
                 }, (error) => {
-                    console.error("Error listening to history:", error);
+                    console.error("Error listening to LEAVE history:", error);
                     let errorMsg = 'Error: មិនអាចទាញយកប្រវត្តិបានទេ';
                     if (error.code && error.code.includes('permission-denied')) {
                          errorMsg = 'Error: មិនមានសិទ្ធិទាញយកប្រវត្តិ (Permission Denied)';
                      } else if (error.code && error.code.includes('failed-precondition')) {
                          errorMsg = 'Error: មិនទាន់បានបង្កើត Index (សូមមើល Console)';
                      }
-                    if (historyPlaceholder) {
-                        historyPlaceholder.classList.remove('hidden');
-                        historyPlaceholder.innerHTML = `<p class="text-red-500">${errorMsg}</p>`;
+                    if (historyPlaceholderLeave) {
+                        historyPlaceholderLeave.classList.remove('hidden');
+                        historyPlaceholderLeave.innerHTML = `<p class="text-red-500">${errorMsg}</p>`;
                     }
-                    if (historyContainer) historyContainer.innerHTML = ''; 
+                    if (historyContainerLeave) historyContainerLeave.innerHTML = ''; 
+                });
+
+                // --- Listener for OUT requests ---
+                 const outHistoryQuery = query(
+                    collection(db, outRequestsCollectionPath),
+                    where("userId", "==", currentEmployeeId),
+                    where("requestedAt", ">=", startTimestamp),
+                    where("requestedAt", "<=", endTimestamp)
+                );
+                
+                historyOutUnsubscribe = onSnapshot(outHistoryQuery, (snapshot) => {
+                     console.log(`Received OUT history snapshot. Empty: ${snapshot.empty}, Size: ${snapshot.size}`);
+                     const requests = [];
+                     snapshot.forEach(doc => requests.push(doc.data()));
+                     renderHistoryCards(requests, 'out');
+                }, (error) => {
+                    console.error("Error listening to OUT history:", error);
+                     let errorMsg = 'Error: មិនអាចទាញយកប្រវត្តិបានទេ';
+                    if (error.code && error.code.includes('permission-denied')) {
+                         errorMsg = 'Error: មិនមានសិទ្ធិទាញយកប្រវត្តិ (Permission Denied)';
+                     } else if (error.code && error.code.includes('failed-precondition')) {
+                         errorMsg = 'Error: មិនទាន់បានបង្កើត Index (សូមមើល Console)';
+                     }
+                    if (historyPlaceholderOut) {
+                        historyPlaceholderOut.classList.remove('hidden');
+                        historyPlaceholderOut.innerHTML = `<p class="text-red-500">${errorMsg}</p>`;
+                    }
+                    if (historyContainerOut) historyContainerOut.innerHTML = ''; 
                 });
             }
-
-            function renderHistoryCard(request) {
-                 if (!request || !request.requestId) {
-                     console.warn("Attempted to render invalid history card data:", request);
-                     return; 
-                 }
+            
+            function renderHistoryCards(requests, type) {
+                const container = (type === 'leave') ? historyContainerLeave : historyContainerOut;
+                const placeholder = (type === 'leave') ? historyPlaceholderLeave : historyPlaceholderOut;
                 
-                let statusColor, statusText, statusIcon;
-                let decisionTime = '';
+                if (!container || !placeholder) return;
 
-                switch(request.status) {
-                    case 'approved':
-                        statusColor = 'bg-green-100 text-green-800';
-                        statusText = 'បានយល់ព្រម';
-                        statusIcon = `<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" /></svg>`;
-                        if (request.decisionAt) {
-                            decisionTime = `<p class="text-xs text-green-700 mt-1">នៅម៉ោង ${formatFirebaseTimestamp(request.decisionAt)}</p>`;
-                        }
-                        break;
-                    case 'rejected':
-                        statusColor = 'bg-red-100 text-red-800';
-                        statusText = 'បានបដិសេធ';
-                        statusIcon = `<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd" /></svg>`;
-                         if (request.decisionAt) {
-                            decisionTime = `<p class="text-xs text-red-700 mt-1">នៅម៉ោង ${formatFirebaseTimestamp(request.decisionAt)}</p>`;
-                        }
-                        break;
-                    case 'editing':
-                        statusColor = 'bg-blue-100 text-blue-800';
-                        statusText = 'កំពុងកែសម្រួល';
-                        statusIcon = `<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1 animate-spin" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m-15.357-2a8.001 8.001 0 0015.357 2m0 0H15" /></svg>`;
-                        break;
-                    default: // pending
-                        statusColor = 'bg-yellow-100 text-yellow-800';
-                        statusText = 'កំពុងរង់ចាំ';
-                        statusIcon = `<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clip-rule="evenodd" /></svg>`;
+                if (requests.length === 0) {
+                    placeholder.classList.remove('hidden');
+                    container.innerHTML = ''; 
+                    return;
                 }
                 
-                // Add Edit/Delete buttons only if status is pending or editing
-                let actionButtons = '';
-                if (request.status === 'pending' || request.status === 'editing') {
-                    actionButtons = `
-                        <div class="flex items-center space-x-2">
-                            <button class="edit-btn p-2 text-gray-400 hover:text-blue-600" data-id="${request.requestId}">
-                                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                                    <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
-                                </svg>
-                            </button>
-                            <button class="delete-btn p-2 text-gray-400 hover:text-red-600" data-id="${request.requestId}">
-                                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                                    <path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd" />
-                                </svg>
-                            </button>
-                        </div>
-                    `;
-                }
+                placeholder.classList.add('hidden');
+                container.innerHTML = ''; // Clear before rendering
                 
-                const formattedStartDate = formatFirebaseDate(request.startDate);
-                const formattedEndDate = formatFirebaseDate(request.endDate);
-                const dateString = (request.startDate === request.endDate) 
-                    ? formattedStartDate 
-                     : (request.startDate && request.endDate ? `${formattedStartDate} ដល់ ${formattedEndDate}` : 'N/A'); 
+                // Custom sort: pending/editing first, then by date
+                const statusPriority = { 'pending': 1, 'editing': 2, 'approved': 3, 'rejected': 4 };
+                
+                requests.sort((a, b) => {
+                    const statusA = statusPriority[a.status] || 5;
+                    const statusB = statusPriority[b.status] || 5;
+                    
+                    if (statusA !== statusB) {
+                        return statusA - statusB; // Sort by status priority
+                    }
+                    
+                    // If status is same, sort by date (newest first)
+                     const timeA = a.requestedAt?.toMillis ? a.requestedAt.toMillis() : 0;
+                     const timeB = b.requestedAt?.toMillis ? b.requestedAt.toMillis() : 0;
+                    return timeB - timeA; 
+                });
+                
+                console.log(`Rendering ${requests.length} history items for type: ${type}`);
+                requests.forEach(request => {
+                    if (!request || !request.requestId) {
+                         console.warn("Attempted to render invalid history card data:", request);
+                         return; 
+                     }
+                    
+                    let statusColor, statusText;
+                    let showActions = false;
+                    switch(request.status) {
+                        case 'approved':
+                            statusColor = 'bg-green-100 text-green-800';
+                            statusText = 'បានយល់ព្រម';
+                            break;
+                        case 'rejected':
+                            statusColor = 'bg-red-100 text-red-800';
+                            statusText = 'បានបដិសេធ';
+                            break;
+                        case 'editing':
+                             statusColor = 'bg-blue-100 text-blue-800';
+                             statusText = 'កំពុងកែសម្រួល...';
+                             break;
+                        default: // pending
+                            statusColor = 'bg-yellow-100 text-yellow-800';
+                            statusText = 'កំពុងរង់ចាំ';
+                            showActions = true; // Show actions only for pending
+                    }
+                    
+                    const dateString = (request.startDate === request.endDate) 
+                        ? request.startDate 
+                         : (request.startDate && request.endDate ? `${request.startDate} ដល់ ${request.endDate}` : 'N/A');
+                         
+                    const decisionTime = request.decisionAt ? formatTime(request.decisionAt) : '';
 
-
-                const card = `
-                    <div class="bg-white border border-gray-200 rounded-lg shadow-sm p-4 mb-4">
-                        <div class="flex justify-between items-start mb-2">
-                            <span class="font-semibold text-gray-800">${request.duration || 'N/A'}</span>
-                            <span class="text-xs font-medium px-2 py-0.5 rounded-full ${statusColor} flex items-center">
-                                ${statusIcon}
-                                ${statusText}
-                            </span>
-                        </div>
-                        <p class="text-sm text-gray-600">${dateString}</p>
-                        <p class="text-sm text-gray-500 mt-1"><b>មូលហេតុ:</b> ${request.reason || 'មិនបានបញ្ជាក់'}</p>
-                        ${decisionTime}
-                        <hr class="my-3 border-gray-100">
-                        <div class="flex justify-between items-center">
-                            <p class="text-xs text-gray-400">
+                    const card = `
+                        <div class="bg-white border border-gray-200 rounded-lg shadow-sm p-4 mb-4">
+                            <div class="flex justify-between items-start mb-2">
+                                <span class="font-semibold text-gray-800">${request.duration || 'N/A'}</span>
+                                <span class="text-xs text-right">
+                                    <div class="font-medium px-2 py-0.5 rounded-full ${statusColor}">
+                                        ${statusText}
+                                    </div>
+                                    ${decisionTime ? `<p class="text-gray-400 mt-1">${decisionTime}</p>` : ''}
+                                </span>
+                            </div>
+                            <p class="text-sm text-gray-600">${dateString}</p>
+                            <p class="text-sm text-gray-500 mt-1"><b>មូលហេតុ:</b> ${request.reason || 'មិនបានបញ្ជាក់'}</p>
+                            
+                            ${showActions ? `
+                            <hr class="my-3 border-gray-100">
+                            <div class="flex items-center justify-end space-x-2">
+                                <button class="edit-btn p-2 text-gray-500 hover:text-blue-600" 
+                                        data-id="${request.requestId}" 
+                                        data-type="${request.type}">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                      <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
+                                    </svg>
+                                </button>
+                                <button class="delete-btn p-2 text-gray-500 hover:text-red-600" 
+                                        data-id="${request.requestId}" 
+                                        data-type="${request.type}"
+                                        data-name="${request.duration} (${dateString})">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                      <path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd" />
+                                    </svg>
+                                </button>
+                            </div>
+                            ` : `
+                            <p class="text-xs text-gray-400 mt-2">
                                 ID: ${request.requestId}
                             </p>
-                            ${actionButtons}
+                            `}
                         </div>
-                    </div>
-                `;
-                if (historyContainer) {
-                    historyContainer.innerHTML += card;
-                } else {
-                     console.error("History container not found when rendering card.");
-                 }
+                    `;
+                    container.innerHTML += card;
+                });
+                
+                // Add event listeners to new buttons
+                container.querySelectorAll('.edit-btn').forEach(btn => {
+                    btn.addEventListener('click', () => openEditModal(btn.dataset.id, btn.dataset.type));
+                });
+                container.querySelectorAll('.delete-btn').forEach(btn => {
+                    btn.addEventListener('click', () => openDeleteConfirm(btn.dataset.id, btn.dataset.type, btn.dataset.name));
+                });
             }
 
-            // --- Event Listeners for Edit/Delete (Event Delegation) ---
-            if (historyContainer) {
-                historyContainer.addEventListener('click', async (e) => {
-                    const editBtn = e.target.closest('.edit-btn');
-                    const deleteBtn = e.target.closest('.delete-btn');
-                    
-                    if (editBtn) {
-                        const requestId = editBtn.dataset.id;
-                        console.log("Edit button clicked for:", requestId);
-                        await openEditModal(requestId);
+            // --- Edit Modal Logic ---
+            function openEditModal(requestId, type) {
+                console.log(`Opening edit modal for ${type} request: ${requestId}`);
+                 if (!editModal || !editForm) return;
+
+                // Find the request data (must be loaded already by onSnapshot)
+                const collection = (type === 'leave') ? historyContainerLeave : historyContainerOut;
+                const cardElement = collection.querySelector(`[data-id="${requestId}"]`);
+                
+                // This is a simplified way; a better way would be to fetch from the array
+                // For now, we assume data is available or fetch it again
+                // Simple fetch from Firestore (as snapshot data might be complex to query locally)
+                const collectionPath = (type === 'leave') ? leaveRequestsCollectionPath : outRequestsCollectionPath;
+                const docRef = doc(db, collectionPath, requestId);
+                
+                docRef.get().then(docSnap => {
+                    if (docSnap.exists()) {
+                        editingRequest = docSnap.data();
+                        
+                        if (editingRequest.status !== 'pending') {
+                             alert("មិនអាចកែសម្រួលសំណើ ដែលត្រូវបានអនុម័ត ឬបដិសេធរួចហើយបានទេ។");
+                             return;
+                         }
+                        
+                        // Populate modal
+                        if(editRequestIdInput) editRequestIdInput.value = editingRequest.requestId;
+                        if(editTypeInput) editTypeInput.value = editingRequest.type;
+                        
+                        const items = (type === 'leave') ? leaveDurationItems : outDurationItems;
+                        const allowCustomReason = true; // Always allow
+                        const allowCustomDuration = (type === 'out'); // Only for Out requests
+                        
+                        // Setup dropdowns for the modal
+                        getEditDurationSelection = setupSearchableDropdown('edit-duration-search', 'edit-duration-dropdown', items, (duration) => {
+                             if (type === 'leave') updateEditDateFields(duration);
+                         }, false); // Never allow custom duration
+                         
+                        getEditReasonSelection = setupSearchableDropdown('edit-reason-search', 'edit-reason-dropdown', 
+                            (type === 'leave') ? leaveReasonItems : outReasonItems, 
+                            null, 
+                            true); // Always allow custom reason
+
+                        // Set values
+                        if(editDurationSearch) editDurationSearch.value = editingRequest.duration;
+                        if(editReasonSearch) editReasonSearch.value = editingRequest.reason;
+                        
+                        // Manually trigger callbacks to set initial state
+                        getEditDurationSelection();
+                        getEditReasonSelection();
+                        
+                        if (type === 'leave') {
+                            updateEditDateFields(editingRequest.duration); // Call this to show/hide date fields
+                            // Set date values
+                            if (leaveSingleDayDurations.includes(editingRequest.duration)) {
+                                 if(editSingleDateContainer) editSingleDateContainer.querySelector('input').value = convertDDMMYYYYtoYYYYMMDD(editingRequest.startDate);
+                            } else {
+                                if(editStartDateInput) editStartDateInput.value = convertDDMMYYYYtoYYYYMMDD(editingRequest.startDate);
+                                if(editEndDateInput) editEndDateInput.value = convertDDMMYYYYtoYYYYMMDD(editingRequest.endDate);
+                            }
+                        } else {
+                            // For 'out' request
+                            if(editSingleDateContainer) {
+                                editSingleDateContainer.classList.remove('hidden');
+                                editSingleDateContainer.querySelector('input').value = convertDDMMYYYYtoYYYYMMDD(editingRequest.startDate);
+                                editSingleDateContainer.querySelector('input').disabled = true; // Still can't change date
+                            }
+                            if(editDateRangeContainer) editDateRangeContainer.classList.add('hidden');
+                        }
+                        
+                        if(editErrorEl) editErrorEl.classList.add('hidden');
+                        if(editModal) editModal.classList.remove('hidden');
+                        
+                        // Set status to 'editing'
+                        updateDoc(docRef, { status: 'editing' });
+                        console.log("Request status set to 'editing'.");
+                        
+                    } else {
+                        console.error("Document not found for editing:", requestId);
+                        alert("Error: រកមិនឃើញសំណើសម្រាប់កែសម្រួលទេ។");
                     }
-                    
-                    if (deleteBtn) {
-                        const requestId = deleteBtn.dataset.id;
-                        console.log("Delete button clicked for:", requestId);
-                        openDeleteModal(requestId);
-                    }
+                }).catch(error => {
+                    console.error("Error fetching document for edit:", error);
+                     alert(`Error: ${error.message}`);
                 });
             }
             
-            // --- Edit Modal Logic ---
-            async function openEditModal(requestId) {
-                if (!db || !leaveRequestsCollectionPath) {
-                     console.error("DB or path missing for edit.");
-                     alert("Error: មិនអាចបើកទម្រង់កែសម្រួលបានទេ។");
-                     return;
-                }
-                
-                currentEditRequestId = null; // Reset
-                if (editModal) editModal.classList.remove('hidden');
-                if (editLoadingEl) editLoadingEl.classList.remove('hidden');
-                if (editErrorEl) editErrorEl.classList.add('hidden');
-                
-                try {
-                    const requestRef = doc(db, leaveRequestsCollectionPath, requestId);
-                    const docSnap = await getDoc(requestRef);
-                    
-                    if (!docSnap.exists()) {
-                        throw new Error("រកមិនឃើញសំណើនេះទេ");
-                    }
-                    
-                    const data = docSnap.data();
-                    
-                    // Prevent editing if not pending/editing
-                    if (data.status !== 'pending' && data.status !== 'editing') {
-                         throw new Error("សំណើនេះ ត្រូវបានសម្រេចរួចហើយ មិនអាចកែសម្រួលបានទេ");
-                    }
-                    
-                    // Set status to 'editing' to lock it from Admin approval
-                    await updateDoc(requestRef, { status: 'editing' });
-                    console.log("Request status set to 'editing'.");
-                    
-                    currentEditRequestId = requestId; // Set global ID
-                    
-                    // Populate modal fields
-                    if (editDurationSearch) editDurationSearch.value = data.duration;
-                    if (editReasonSearch) editReasonSearch.value = data.reason;
-                    
-                    // Trigger update for date fields based on saved duration
-                    updateDateFields(data.duration, 'edit');
-                    
-                    // Set the date fields to the saved dates (override defaults)
-                    if (singleDayDurations.includes(data.duration)) {
-                        if(editSingleDateInput) editSingleDateInput.value = data.startDate;
-                    } else {
-                        if(editStartDateInput) editStartDateInput.value = data.startDate;
-                        if(editEndDateInput) editEndDateInput.value = data.endDate;
-                    }
+            function updateEditDateFields(duration) {
+                // Similar to updateLeaveDateFields, but for the edit modal
+                 const singleContainer = document.getElementById('edit-single-date-container');
+                 const rangeContainer = document.getElementById('edit-date-range-container');
+                 const singleInput = singleContainer ? singleContainer.querySelector('input') : null;
+                 const startInput = document.getElementById('edit-date-start');
+                 const endInput = document.getElementById('edit-date-end');
+                 
+                 if (!singleContainer || !rangeContainer || !singleInput || !startInput || !endInput) return;
 
-                    if (editLoadingEl) editLoadingEl.classList.add('hidden');
-                    
-                } catch (error) {
-                    console.error("Error opening edit modal:", error);
-                    if (editErrorEl) {
-                        editErrorEl.textContent = `Error: ${error.message}`;
-                        editErrorEl.classList.remove('hidden');
-                    }
-                    if (editLoadingEl) editLoadingEl.classList.add('hidden');
-                    // Close modal on error
-                    setTimeout(() => {
-                         if (editModal) editModal.classList.add('hidden');
-                    }, 2000);
+                if (!duration) {
+                    singleContainer.classList.add('hidden');
+                    rangeContainer.classList.add('hidden');
+                    return;
+                }
+
+                if (leaveSingleDayDurations.includes(duration)) {
+                    singleContainer.classList.remove('hidden');
+                    rangeContainer.classList.add('hidden');
+                    singleInput.disabled = false; // Allow editing single date
+                } else {
+                    singleContainer.classList.add('hidden');
+                    rangeContainer.classList.remove('hidden');
+                    startInput.disabled = false; // Allow editing start date
+                    endInput.disabled = false; // Allow editing end date
                 }
             }
-            
-            if (editCancelBtn) editCancelBtn.addEventListener('click', async () => {
-                if (currentEditRequestId) {
-                    // Revert status back to 'pending' if user cancels
-                    const requestRef = doc(db, leaveRequestsCollectionPath, currentEditRequestId);
-                    try {
-                        await updateDoc(requestRef, { status: 'pending' });
-                        console.log("Edit canceled. Status reverted to 'pending'.");
-                    } catch (error) {
-                         console.error("Error reverting status on cancel:", error);
-                    }
-                }
+
+            if (cancelEditBtn) cancelEditBtn.addEventListener('click', async () => {
                 if (editModal) editModal.classList.add('hidden');
-                currentEditRequestId = null;
+                if (editingRequest) {
+                    // Revert status to 'pending'
+                    const collectionPath = (editingRequest.type === 'leave') ? leaveRequestsCollectionPath : outRequestsCollectionPath;
+                    const docRef = doc(db, collectionPath, editingRequest.requestId);
+                    try {
+                         await updateDoc(docRef, { status: 'pending' });
+                         console.log("Edit cancelled, status reverted to 'pending'.");
+                     } catch (error) {
+                         console.error("Error reverting status on cancel:", error);
+                     }
+                    editingRequest = null;
+                }
             });
-            
-            if (editSaveBtn) editSaveBtn.addEventListener('click', async () => {
-                if (!currentEditRequestId) return;
-                
-                const newDuration = editDurationSearch ? editDurationSearch.value : null;
-                const newReason = editReasonSearch ? editReasonSearch.value.trim() : null;
-                
-                // Validation
-                const validDuration = durations.includes(newDuration);
-                if (!validDuration) {
-                    if(editErrorEl) {
-                        editErrorEl.textContent = 'សូមជ្រើសរើស "រយៈពេល" ពីក្នុងបញ្ជីឲ្យបានត្រឹមត្រូវ។';
-                        editErrorEl.classList.remove('hidden');
-                    }
-                    return;
-                }
-                if (!newReason || newReason === '') {
+
+            if (saveEditBtn) saveEditBtn.addEventListener('click', async () => {
+                 if (!editingRequest || !getEditDurationSelection || !getEditReasonSelection) return;
+
+                 const selectedDuration = getEditDurationSelection();
+                 const selectedReason = getEditReasonSelection();
+                 
+                 // Validation
+                 if (!selectedDuration) {
                      if(editErrorEl) {
-                        editErrorEl.textContent = 'សូមបំពេញ "មូលហេតុ" ជាមុនសិន។';
-                        editErrorEl.classList.remove('hidden');
-                    }
-                    return;
-                }
-                
-                if (editErrorEl) editErrorEl.classList.add('hidden');
-                if (editLoadingEl) editLoadingEl.classList.remove('hidden');
-                if (editSaveBtn) editSaveBtn.disabled = true;
+                         editErrorEl.textContent = 'សូមជ្រើសរើស "រយៈពេល" ពីក្នុងបញ្ជី។';
+                         editErrorEl.classList.remove('hidden');
+                     }
+                     return;
+                 }
+                 if (!selectedReason || selectedReason.trim() === '') {
+                     if(editErrorEl) {
+                         editErrorEl.textContent = 'សូមបំពេញ "មូលហេតុ" ជាមុនសិន។';
+                         editErrorEl.classList.remove('hidden');
+                     }
+                     return;
+                 }
+                 
+                 if(editErrorEl) editErrorEl.classList.add('hidden');
+                 saveEditBtn.disabled = true;
 
                 try {
-                    const newStartDate = singleDayDurations.includes(newDuration) 
-                        ? (editSingleDateInput ? editSingleDateInput.value : getTodayString())
-                        : (editStartDateInput ? editStartDateInput.value : getTodayString());
-                    const newEndDate = singleDayDurations.includes(newDuration) 
-                        ? newStartDate
-                        : (editEndDateInput ? editEndDateInput.value : getTodayString());
-                        
-                    if (new Date(newEndDate) < new Date(newStartDate)) {
-                         throw new Error('"ថ្ងៃបញ្ចប់" មិនអាចនៅមុន "ថ្ងៃចាប់ផ្តើម" បានទេ។');
-                    }
-                    
-                    const requestRef = doc(db, leaveRequestsCollectionPath, currentEditRequestId);
-                    
-                    // Update Firestore document
-                    await updateDoc(requestRef, {
-                        duration: newDuration,
-                        reason: newReason,
-                        startDate: newStartDate,
-                        endDate: newEndDate,
-                        status: 'pending', // Set back to pending
-                        requestedAt: serverTimestamp() // Update timestamp to show it's recent
-                    });
-                    console.log("Edit saved successfully. Status set to 'pending'.");
+                     const collectionPath = (editingRequest.type === 'leave') ? leaveRequestsCollectionPath : outRequestsCollectionPath;
+                     const docRef = doc(db, collectionPath, editingRequest.requestId);
+                     
+                     let startDate_DDMMYYYY, endDate_DDMMYYYY;
+                     
+                     if (editingRequest.type === 'leave') {
+                         const startDate_YYYYMMDD = leaveSingleDayDurations.includes(selectedDuration)
+                             ? (editSingleDateContainer.querySelector('input').value)
+                             : (editStartDateInput.value);
+                         const endDate_YYYYMMDD = leaveSingleDayDurations.includes(selectedDuration)
+                             ? startDate_YYYYMMDD
+                             : (editEndDateInput.value);
+                             
+                         if (new Date(endDate_YYYYMMDD) < new Date(startDate_YYYYMMDD)) {
+                             throw new Error('"ថ្ងៃបញ្ចប់" មិនអាចនៅមុន "ថ្ងៃចាប់ផ្តើម" បានទេ។');
+                         }
+                         startDate_DDMMYYYY = convertYYYYMMDDtoDDMMYYYY(startDate_YYYYMMDD);
+                         endDate_DDMMYYYY = convertYYYYMMDDtoDDMMYYYY(endDate_YYYYMMDD);
+                     } else {
+                         // 'out' request - date is not editable
+                         startDate_DDMMYYYY = editingRequest.startDate;
+                         endDate_DDMMYYYY = editingRequest.endDate;
+                     }
+                     
+                     const updatedData = {
+                         duration: selectedDuration,
+                         reason: selectedReason.trim(),
+                         startDate: startDate_DDMMYYYY,
+                         endDate: endDate_DDMMYYYY,
+                         status: 'pending', // Revert status to pending
+                         requestedAt: serverTimestamp() // Update timestamp to new
+                     };
+                     
+                     await updateDoc(docRef, updatedData);
+                     console.log("Request updated successfully.");
 
-                    // Send updated notification to Admin
-                    const formattedStartDate = formatFirebaseDate(newStartDate);
-                    const formattedEndDate = formatFirebaseDate(newEndDate);
-                    const dateString = (newStartDate === newEndDate) ? formattedStartDate : `ពី ${formattedStartDate} ដល់ ${formattedEndDate}`;
+                     // Send new Telegram notification
+                    const dateString = (startDate_DDMMYYYY === endDate_DDMMYYYY) ? startDate_DDMMYYYY : `ពី ${startDate_DDMMYYYY} ដល់ ${endDate_DDMMYYYY}`;
+                    const typeText = (editingRequest.type === 'leave') ? "ច្បាប់ឈប់សម្រាក" : "ច្បាប់ចេញក្រៅ";
                     
-                    let message = `<b>🔄 សំណើបានកែសម្រួល 🔄</b>\n\n`;
-                    message += `<b>ឈ្មោះ:</b>     ${currentUser.name}\n`;
-                    message += `<b>រយៈពេល:</b>  ${newDuration}\n`;
+                    let message = `<b>🔔 សំណើ (បានកែសម្រួល) 🔔</b>\n\n`;
+                    message += `<b>ប្រភេទ:</b> ${typeText}\n`;
+                    message += `<b>ឈ្មោះ:</b> ${editingRequest.name}\n`;
+                    message += `<b>អត្តលេខ:</b> ${editingRequest.userId}\n`;
+                    message += `<b>រយៈពេល:</b> ${updatedData.duration}\n`;
                     message += `<b>កាលបរិច្ឆេទ:</b> ${dateString}\n`;
-                    message += `<b>មូលហេតុ:</b>  ${newReason}\n\n`;
-                    message += `(ID: \`${currentEditRequestId}\`)`;
+                    message += `<b>មូលហេតុ:</b> ${updatedData.reason}\n\n`;
+                    message += `(សូមចូល Firestore ពិនិត្យ ID: \`${editingRequest.requestId}\`)`;
+                    
+                    await sendTelegramNotification(message);
 
-                    console.log("Sending edit notification to Telegram...");
-                    const telegramUrl = `https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`;
-                    await fetch(telegramUrl, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            chat_id: CHAT_ID,
-                            text: message,
-                            parse_mode: 'HTML'
-                        })
-                    });
-
-                    // Close modal
-                    if (editLoadingEl) editLoadingEl.classList.add('hidden');
-                    if (editSaveBtn) editSaveBtn.disabled = false;
-                    if (editModal) editModal.classList.add('hidden');
-                    currentEditRequestId = null;
-                    alert("ការកែសម្រួលត្រូវបានរក្សាទុក!");
+                     if(editModal) editModal.classList.add('hidden');
+                     editingRequest = null;
 
                 } catch (error) {
-                    console.error("Error saving edit:", error);
-                    if(editErrorEl) {
-                        editErrorEl.textContent = `Error: ${error.message}`;
-                        editErrorEl.classList.remove('hidden');
-                    }
-                    if (editLoadingEl) editLoadingEl.classList.add('hidden');
-                    if (editSaveBtn) editSaveBtn.disabled = false;
-                }
+                     console.error("Error saving edit:", error);
+                     if(editErrorEl) {
+                         editErrorEl.textContent = `Error: ${error.message}`;
+                         editErrorEl.classList.remove('hidden');
+                     }
+                 } finally {
+                     if(saveEditBtn) saveEditBtn.disabled = false;
+                 }
             });
 
-            // --- Delete Modal Logic ---
-            function openDeleteModal(requestId) {
-                if (deleteModal) {
-                    deleteModal.classList.remove('hidden');
-                    // Set the request ID on the confirm button
-                    if (deleteConfirmBtn) deleteConfirmBtn.dataset.id = requestId;
-                }
+            // --- Delete Confirm Logic ---
+            function openDeleteConfirm(requestId, type, name) {
+                console.log(`Opening delete confirm for ${type} request: ${requestId}`);
+                requestToDelete = { requestId, type };
+                if (deleteConfirmText) deleteConfirmText.textContent = `តើអ្នកប្រាកដទេ ថាចង់លុបសំណើ "${name}"?`;
+                if (deleteConfirmModal) deleteConfirmModal.classList.remove('hidden');
             }
             
-            if (deleteCancelBtn) deleteCancelBtn.addEventListener('click', () => {
-                 if (deleteModal) deleteModal.classList.add('hidden');
-                 if (deleteConfirmBtn) deleteConfirmBtn.dataset.id = ''; // Clear ID
+            if (cancelDeleteBtn) cancelDeleteBtn.addEventListener('click', () => {
+                 if (deleteConfirmModal) deleteConfirmModal.classList.add('hidden');
+                 requestToDelete = null;
             });
             
-            if (deleteConfirmBtn) deleteConfirmBtn.addEventListener('click', async () => {
-                const requestId = deleteConfirmBtn.dataset.id;
-                if (!requestId || !db || !leaveRequestsCollectionPath) {
-                    console.error("Cannot delete: Missing ID or DB info.");
-                    return;
-                }
-                
-                if (deleteLoadingEl) deleteLoadingEl.classList.remove('hidden');
-                if (deleteConfirmBtn) deleteConfirmBtn.disabled = true;
-                if (deleteCancelBtn) deleteCancelBtn.disabled = true;
+            if (confirmDeleteBtn) confirmDeleteBtn.addEventListener('click', async () => {
+                 if (!requestToDelete) return;
+                 
+                 confirmDeleteBtn.disabled = true;
+                 const { requestId, type } = requestToDelete;
+                 const collectionPath = (type === 'leave') ? leaveRequestsCollectionPath : outRequestsCollectionPath;
+                 const docRef = doc(db, collectionPath, requestId);
 
-                try {
-                    const requestRef = doc(db, leaveRequestsCollectionPath, requestId);
-                    await deleteDoc(requestRef);
-                    console.log("Request deleted successfully:", requestId);
-                    
-                    // Close modal
-                    if (deleteModal) deleteModal.classList.add('hidden');
-                    alert("សំណើត្រូវបានលុបចោល");
-                    
-                } catch (error) {
-                    console.error("Error deleting request:", error);
-                    alert(`Error: មិនអាចលុបសំណើបានទេ។ ${error.message}`);
-                } finally {
-                    // Reset modal state
-                    if (deleteLoadingEl) deleteLoadingEl.classList.add('hidden');
-                    if (deleteConfirmBtn) {
-                        deleteConfirmBtn.disabled = false;
-                        deleteConfirmBtn.dataset.id = '';
-                    }
-                    if (deleteCancelBtn) deleteCancelBtn.disabled = false;
-                }
+                 try {
+                     await deleteDoc(docRef);
+                     console.log("Request deleted successfully:", requestId);
+                     if (deleteConfirmModal) deleteConfirmModal.classList.add('hidden');
+                     requestToDelete = null;
+                     
+                     // Send Telegram Notification
+                    let message = `<b>❌ សំណើត្រូវបានលុបចោល ❌</b>\n\n`;
+                    message += `<b>User:</b> ${currentUser.name}\n`;
+                    message += `<b>ID:</b> \`${requestId}\`\n`;
+                    message += `(សំណើនេះ ត្រូវបានលុបដោយ User ផ្ទាល់។)`;
+                    await sendTelegramNotification(message);
+                     
+                 } catch (error) {
+                     console.error("Error deleting request:", error);
+                     alert(`Error: ${error.message}`);
+                 } finally {
+                     if (confirmDeleteBtn) confirmDeleteBtn.disabled = false;
+                 }
             });
 
         });
@@ -1497,18 +1722,18 @@
             -webkit-tap-highlight-color: transparent; 
         }
         /* Custom scrollbar for dropdown */
-        #user-dropdown, #duration-dropdown, #reason-dropdown, #edit-duration-dropdown, #edit-reason-dropdown {
+        .custom-dropdown {
             scrollbar-width: thin;
             scrollbar-color: #9ca3af #f3f4f6;
         }
-        #user-dropdown::-webkit-scrollbar, #duration-dropdown::-webkit-scrollbar, #reason-dropdown::-webkit-scrollbar, #edit-duration-dropdown::-webkit-scrollbar, #edit-reason-dropdown::-webkit-scrollbar {
+        .custom-dropdown::-webkit-scrollbar {
             width: 6px;
         }
-        #user-dropdown::-webkit-scrollbar-track, #duration-dropdown::-webkit-scrollbar-track, #reason-dropdown::-webkit-scrollbar-track, #edit-duration-dropdown::-webkit-scrollbar-track, #edit-reason-dropdown::-webkit-scrollbar-track {
+        .custom-dropdown::-webkit-scrollbar-track {
             background: #f3f4f6;
             border-radius: 10px;
         }
-        #user-dropdown::-webkit-scrollbar-thumb, #duration-dropdown::-webkit-scrollbar-thumb, #reason-dropdown::-webkit-scrollbar-thumb, #edit-duration-dropdown::-webkit-scrollbar-thumb, #edit-reason-dropdown::-webkit-scrollbar-thumb {
+        .custom-dropdown::-webkit-scrollbar-thumb {
             background-color: #9ca3af;
             border-radius: 10px;
             border: 2px solid #f3f4f6;
@@ -1526,6 +1751,11 @@
         @keyframes spin {
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
+        }
+
+        /* History Tab Active State */
+        .history-tab-btn.border-blue-600 {
+            font-weight: 600;
         }
     </style>
 </head>
@@ -1577,12 +1807,11 @@
                 <!-- Custom Dropdown List -->
                 <div
                     id="user-dropdown"
-                    class="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto hidden"
+                    class="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto hidden custom-dropdown"
                 >
                     <!-- User items will be injected here by JS -->
                 </div>
             </div>
-            <p id="user-search-error" class="text-red-500 text-sm mt-1 hidden">សូមជ្រើសរើសអត្តលេខឲ្យបានត្រឹមត្រូវ</p>
             
             <!-- Remember Me Checkbox -->
             <div class="flex items-center mt-4">
@@ -1607,10 +1836,8 @@
             <h3 class="text-xl font-bold mb-4">កំពុងស្កេនផ្ទៃមុខ</h3>
             <div class="relative w-full h-64 bg-gray-800 rounded-lg overflow-hidden border-4 border-blue-500">
                 <video id="video" class="w-full h-full object-cover" autoplay muted playsinline></video>
-                <div id="scan-overlay" class="absolute inset-0 border-8 border-transparent animate-pulse"></div>
             </div>
             <p id="scan-status" class="mt-4 text-lg font-medium text-gray-700">រកមិនឃើញផ្ទៃមុខ...</p>
-            <p id="scan-debug" class="text-xs text-gray-500 h-4"></p>
             <button id="cancel-scan-btn" class="mt-4 w-full bg-gray-200 text-gray-800 py-2 px-4 rounded-lg font-semibold hover:bg-gray-300">
                 បោះបង់
             </button>
@@ -1648,13 +1875,13 @@
                             <p class="text-lg font-semibold">សុំច្បាប់ឈប់</p>
                             <p class="text-sm">ឈប់សម្រាក</p>
                         </button>
-                        <!-- Out Request (Disabled) -->
-                        <button class="bg-gray-50 border border-gray-200 text-gray-400 p-6 rounded-lg shadow-sm cursor-not-allowed" disabled>
+                        <!-- Out Request -->
+                        <button id="open-out-request-btn" class="bg-green-50 border border-green-200 text-green-800 p-6 rounded-lg shadow-sm hover:bg-green-100 transition-all">
                             <svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12 mb-2 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                             </svg>
                             <p class="text-lg font-semibold">សុំច្បាប់ចេញក្រៅ</p>
-                            <p class="text-sm">(មិនទាន់ដំណើរការ)</p>
+                            <p class="text-sm">ចេញក្រៅផ្ទាល់ខ្លួន</p>
                         </button>
                     </div>
                 </section>
@@ -1662,13 +1889,13 @@
                 <!-- Approver Section -->
                 <section class="mt-8">
                     <h3 class="text-md font-semibold text-gray-700 mb-3">អ្នកអនុញ្ញាតច្បាប់</h3>
-                    <div class="w-full bg-white border border-gray-300 p-4 rounded-lg shadow-sm flex items-center space-x-4">
-                        <img src="https://placehold.co/60x60/e2e8f0/64748b?text=Photo" alt="Approver" class="h-16 w-16 rounded-full border-2 border-white shadow-md">
+                    <button class="w-full bg-white border border-gray-300 p-4 rounded-lg shadow-sm hover:bg-gray-50 transition-all flex items-center space-x-4">
+                        <img src="https://i.postimg.cc/cL3wdGs8/photo-2025-09-27-15-47-14.jpg" alt="Approver" class="h-16 w-16 rounded-full border-2 border-white shadow-md object-cover">
                         <div>
                             <p class="text-lg font-semibold text-gray-800 text-left">លោកគ្រូ​ ពៅ ដារ៉ូ</p>
                             <p class="text-sm text-gray-500 text-left">គណៈគ្រប់គ្រង</p>
                         </div>
-                    </div>
+                    </button>
                 </section>
             </div>
 
@@ -1676,17 +1903,15 @@
             <div id="page-account" class="p-6 hidden">
                 <h2 class="text-2xl font-bold text-gray-800 mb-6 text-center">គណនីរបស់ខ្ញុំ</h2>
                 
-                <!-- User Info Card -->
                 <div class="bg-white rounded-lg shadow-md border border-gray-200 p-6 mb-6">
                     <div class="flex flex-col items-center">
-                        <img id="user-photo" src="https://placehold.co/100x100/e2e8f0/64748b?text=User" alt="User Photo" class="h-24 w-24 rounded-full border-4 border-white shadow-lg mb-4">
+                        <img id="user-photo" src="https://placehold.co/100x100/e2e8f0/64748b?text=User" alt="User Photo" class="h-24 w-24 rounded-full border-4 border-white shadow-lg mb-4 object-cover">
                         <h3 id="user-name" class="text-xl font-bold text-gray-900">...</h3>
                         <p id="user-id" class="text-sm text-gray-500">...</p>
                     </div>
                     
                     <hr class="my-6 border-gray-200">
                     
-                    <!-- Details -->
                     <div class="space-y-3">
                         <div class="flex justify-between">
                             <span class="text-gray-500 font-medium">ភេទ:</span>
@@ -1703,7 +1928,6 @@
                     </div>
                 </div>
 
-                <!-- Logout Button -->
                 <button id="logout-btn" class="w-full bg-red-500 text-white py-3 px-4 rounded-lg font-semibold shadow-md hover:bg-red-600 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 transition-all duration-150">
                     ចាកចេញពីគណនី
                 </button>
@@ -1712,32 +1936,44 @@
             <!-- ===== PAGE 3: HISTORY (ប្រវត្តិ) ===== -->
             <div id="page-history" class="p-6 hidden">
                 <h2 class="text-2xl font-bold text-gray-800 mb-4 text-center">ប្រវត្តិសុំច្បាប់</h2>
-                <p class="text-center text-sm text-gray-500 mb-6">បង្ហាញតែសំណើសម្រាប់ខែបច្ចុប្បន្ន</p>
+                <p class="text-center text-sm text-gray-500 mb-6">បង្ហាញតែសំណើ សម្រាប់ខែបច្ចុប្បន្នប៉ុណ្ណោះ</p>
 
-                <!-- History Tabs -->
-                <div class="mb-4 border-b border-gray-200">
-                    <nav class="-mb-px flex space-x-6" aria-label="Tabs">
-                        <button id="history-tab-leave" class="w-1/2 py-4 px-1 text-center border-b-2 font-medium text-sm border-blue-600 text-blue-600">
+                <!-- Tabs -->
+                <div class="border-b border-gray-200 mb-4">
+                    <nav class="-mb-px flex justify-around" aria-label="Tabs">
+                        <button class="history-tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm border-blue-600 text-blue-600" data-tab="history-leave">
                             ច្បាប់ឈប់សម្រាក
                         </button>
-                        <button id="history-tab-out" class="w-1/2 py-4 px-1 text-center border-b-2 font-medium text-sm border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300">
+                        <button class="history-tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300" data-tab="history-out">
                             ច្បាប់ចេញក្រៅ
                         </button>
                     </nav>
                 </div>
-                
-                <!-- Container for history cards -->
-                <div id="history-container">
-                    <!-- History cards will be injected here by JS -->
-                </div>
 
-                <!-- Placeholder for history content -->
-                <div id="history-placeholder" class="text-center text-gray-500 mt-10 hidden">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12 mx-auto text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                      <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                    </svg>
-                    <p class="mt-4 text-lg">មិនទាន់មានប្រវត្តិសំណើ</p>
-                    <p class="text-sm">រាល់សំណើដែលបានដាក់ស្នើ (ក្នុងខែនេះ) នឹងបង្ហាញនៅទីនេះ។</p>
+                <!-- Tab Panel: Leave -->
+                <div id="history-leave" class="history-tab-panel">
+                    <div id="history-container-leave">
+                        <!-- Leave history cards will be injected here -->
+                    </div>
+                    <div id="history-placeholder-leave" class="text-center text-gray-500 mt-10 hidden">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12 mx-auto text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                          <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        </svg>
+                        <p class="mt-4 text-lg">មិនទាន់មានប្រវត្តិ</p>
+                    </div>
+                </div>
+                
+                <!-- Tab Panel: Out -->
+                <div id="history-out" class="history-tab-panel hidden">
+                    <div id="history-container-out">
+                        <!-- Out history cards will be injected here -->
+                    </div>
+                    <div id="history-placeholder-out" class="text-center text-gray-500 mt-10 hidden">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12 mx-auto text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                          <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        </svg>
+                        <p class="mt-4 text-lg">មិនទាន់មានប្រវត្តិ</p>
+                    </div>
                 </div>
             </div>
 
@@ -1780,7 +2016,6 @@
                         </a>
                     </div>
                 </div>
-
                 <div class="text-center text-xs text-gray-400">
                     <p>&copy; 2024 ឧស្សាហកម្មឌីជីថល</p>
                     <p>អភិវឌ្ឍន៍ដោយ ក្រុមការងារ IT SUPPORT</p>
@@ -1802,30 +2037,30 @@
 
                 <!-- User Info -->
                 <section class="flex items-center bg-white border border-gray-200 p-4 rounded-lg shadow-sm mb-6">
-                    <img id="request-user-photo" src="https://placehold.co/60x60/e2e8f0/64748b?text=User" alt="User Photo" class="h-16 w-16 rounded-full border-2 border-white shadow-md">
+                    <img id="leave-request-user-photo" src="https://placehold.co/60x60/e2e8f0/64748b?text=User" alt="User Photo" class="h-16 w-16 rounded-full border-2 border-white shadow-md object-cover">
                     <div class="ml-4">
-                        <h3 id="request-user-name" class="text-lg font-semibold text-gray-800">...</h3>
-                        <p id="request-user-id" class="text-sm text-gray-500">...</p>
-                        <p id="request-user-department" class="text-sm text-gray-500">...</p>
+                        <h3 id="leave-request-user-name" class="text-lg font-semibold text-gray-800">...</h3>
+                        <p id="leave-request-user-id" class="text-sm text-gray-500">...</p>
+                        <p id="leave-request-user-department" class="text-sm text-gray-500">...</p>
                     </div>
                 </section>
 
                 <!-- Form -->
-                <section class="space-y-4 pb-24"> 
+                <section class="space-y-4 pb-24">
                     <!-- Duration -->
                     <div>
-                        <label for="duration-search" class="block text-sm font-medium text-gray-700 mb-1">រយៈពេល</label>
+                        <label for="leave-duration-search" class="block text-sm font-medium text-gray-700 mb-1">រយៈពេល</label>
                         <div class="relative">
                             <input
                                 type="text"
-                                id="duration-search"
+                                id="leave-duration-search"
                                 placeholder="វាយ ឬ ជ្រើសរើសរយៈពេល..."
                                 class="w-full px-4 py-3 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                                 autocomplete="off"
                             >
                             <div
-                                id="duration-dropdown"
-                                class="absolute z-20 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto hidden"
+                                id="leave-duration-dropdown"
+                                class="absolute z-20 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto hidden custom-dropdown"
                             >
                                 <!-- Duration items will be injected here by JS -->
                             </div>
@@ -1833,25 +2068,27 @@
                     </div>
 
                     <!-- Single Date -->
-                    <div id="single-date-container" class="hidden">
+                    <div id="leave-single-date-container" class="hidden">
                         <label for="leave-date-single" class="block text-sm font-medium text-gray-700 mb-1">កាលបរិច្ឆេទ</label>
                         <input
-                            type="date"
+                            type="text"
                             id="leave-date-single"
                             disabled
                             class="w-full px-4 py-3 border border-gray-300 rounded-lg shadow-sm bg-gray-100 cursor-not-allowed"
+                            placeholder="dd/mm/yyyy"
                         >
                     </div>
 
                     <!-- Date Range -->
-                    <div id="date-range-container" class="hidden space-y-4">
+                    <div id="leave-date-range-container" class="hidden space-y-4">
                         <div>
                             <label for="leave-date-start" class="block text-sm font-medium text-gray-700 mb-1">ចាប់ពីថ្ងៃ</label>
                             <input
-                                type="date"
+                                type="text"
                                 id="leave-date-start"
                                 disabled
                                 class="w-full px-4 py-3 border border-gray-300 rounded-lg shadow-sm bg-gray-100 cursor-not-allowed"
+                                placeholder="dd/mm/yyyy"
                             >
                         </div>
                         <div>
@@ -1866,38 +2103,128 @@
 
                     <!-- Reason -->
                     <div>
-                        <label for="reason-search" class="block text-sm font-medium text-gray-700 mb-1">មូលហេតុ</Tlabel>
+                        <label for="leave-reason-search" class="block text-sm font-medium text-gray-700 mb-1">មូលហេតុ</Tlabel>
                         <div class="relative">
                             <input
                                 type="text"
-                                id="reason-search"
+                                id="leave-reason-search"
                                 placeholder="វាយ ឬ ជ្រើសរើសមូលហេតុ..."
                                 class="w-full px-4 py-3 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                                 autocomplete="off"
                             >
                             <div
-                                id="reason-dropdown"
-                                class="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto hidden"
+                                id="leave-reason-dropdown"
+                                class="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto hidden custom-dropdown"
                             >
                                 <!-- Reason items will be injected here by JS -->
                             </div>
                         </div>
                     </div>
                     
-                    <!-- Error Message -->
-                    <p id="request-error" class="text-red-500 text-sm hidden"></p>
+                    <p id="leave-request-error" class="text-red-500 text-sm hidden"></p>
                     
-                    <!-- Loading Indicator -->
-                    <div id="request-loading" class="flex items-center justify-center text-gray-600 hidden">
+                    <div id="leave-request-loading" class="flex items-center justify-center text-gray-600 hidden">
                         <div class="spinner mr-2" style="width: 20px; height: 20px; border-width: 2px;"></div>
                         <span>កំពុងដំណើរការ...</span>
                     </div>
 
                 </section>
 
-                <!-- Submit Button (Fixed at bottom) -->
                 <footer class="absolute bottom-0 left-0 right-0 p-6 bg-white border-t border-gray-200 max-w-md mx-auto">
                     <button id="submit-leave-request-btn" class="w-full bg-blue-600 text-white py-3 px-4 rounded-lg font-semibold shadow-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-all duration-150 disabled:opacity-50">
+                        ស្នើសុំច្បាប់
+                    </button>
+                </footer>
+            </div>
+            
+            <!-- ===== NEW PAGE 6: REQUEST OUT (ទម្រង់ចេញក្រៅ) ===== -->
+            <div id="page-request-out" class="p-6 hidden bg-gray-50" style="min-height: 100vh;">
+                <!-- Header with Back Button -->
+                <header class="flex items-center mb-6">
+                    <button id="cancel-out-request-btn" class="p-2 text-gray-600 hover:text-blue-600">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7" />
+                        </svg>
+                    </button>
+                    <h2 class="text-xl font-bold text-gray-800 text-center flex-grow">ទម្រង់សុំច្បាប់ចេញក្រៅ</h2>
+                    <div class="w-8"></div> <!-- Spacer -->
+                </header>
+
+                <!-- User Info -->
+                <section class="flex items-center bg-white border border-gray-200 p-4 rounded-lg shadow-sm mb-6">
+                    <img id="out-request-user-photo" src="https://placehold.co/60x60/e2e8f0/64748b?text=User" alt="User Photo" class="h-16 w-16 rounded-full border-2 border-white shadow-md object-cover">
+                    <div class="ml-4">
+                        <h3 id="out-request-user-name" class="text-lg font-semibold text-gray-800">...</h3>
+                        <p id="out-request-user-id" class="text-sm text-gray-500">...</p>
+                        <p id="out-request-user-department" class="text-sm text-gray-500">...</p>
+                    </div>
+                </section>
+
+                <!-- Form -->
+                <section class="space-y-4 pb-24">
+                    <!-- Date -->
+                    <div>
+                        <label for="out-date-single" class="block text-sm font-medium text-gray-700 mb-1">កាលបរិច្ឆេទ</label>
+                        <input
+                            type="text"
+                            id="out-date-single"
+                            disabled
+                            class="w-full px-4 py-3 border border-gray-300 rounded-lg shadow-sm bg-gray-100 cursor-not-allowed"
+                            placeholder="dd/mm/yyyy"
+                        >
+                    </div>
+                
+                    <!-- Duration -->
+                    <div>
+                        <label for="out-duration-search" class="block text-sm font-medium text-gray-700 mb-1">រយៈពេល</label>
+                        <div class="relative">
+                            <input
+                                type="text"
+                                id="out-duration-search"
+                                placeholder="វាយ ឬ ជ្រើសរើសរយៈពេល..."
+                                class="w-full px-4 py-3 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                autocomplete="off"
+                            >
+                            <div
+                                id="out-duration-dropdown"
+                                class="absolute z-20 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto hidden custom-dropdown"
+                            >
+                                <!-- Duration items will be injected here by JS -->
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Reason -->
+                    <div>
+                        <label for="out-reason-search" class="block text-sm font-medium text-gray-700 mb-1">មូលហេតុ</Tlabel>
+                        <div class="relative">
+                            <input
+                                type="text"
+                                id="out-reason-search"
+                                placeholder="វាយ ឬ ជ្រើសរើសមូលហេតុ..."
+                                class="w-full px-4 py-3 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                autocomplete="off"
+                            >
+                            <div
+                                id="out-reason-dropdown"
+                                class="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto hidden custom-dropdown"
+                            >
+                                <!-- Reason items will be injected here by JS -->
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <p id="out-request-error" class="text-red-500 text-sm hidden"></p>
+                    
+                    <div id="out-request-loading" class="flex items-center justify-center text-gray-600 hidden">
+                        <div class="spinner mr-2" style="width: 20px; height: 20px; border-width: 2px;"></div>
+                        <span>កំពុងដំណើរការ...</span>
+                    </div>
+
+                </section>
+
+                <footer class="absolute bottom-0 left-0 right-0 p-6 bg-white border-t border-gray-200 max-w-md mx-auto">
+                    <button id="submit-out-request-btn" class="w-full bg-blue-600 text-white py-3 px-4 rounded-lg font-semibold shadow-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-all duration-150 disabled:opacity-50">
                         ស្នើសុំច្បាប់
                     </button>
                 </footer>
@@ -1939,21 +2266,17 @@
             </button>
         </nav>
     </div>
-    
-    <!-- ===== EDIT REQUEST MODAL ===== -->
-    <div id="edit-request-modal" class="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-70 hidden p-4">
+
+    <!-- ===== Edit Request Modal ===== -->
+    <div id="edit-request-modal" class="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-70 p-6 hidden">
         <div class="bg-white p-6 rounded-lg shadow-xl w-full max-w-md max-h-screen overflow-y-auto">
-            <h3 class="text-xl font-bold mb-4">កែសម្រួលសំណើសុំច្បាប់</h3>
+            <h3 class="text-xl font-bold mb-4">កែសម្រួលសំណើ</h3>
             
-            <!-- Loading Spinner for Edit -->
-            <div id="edit-loading" class="flex flex-col items-center justify-center text-gray-600 hidden my-10">
-                <div class="spinner mb-4"></div>
-                <span>កំពុងទាញយកទិន្នន័យ...</span>
-            </div>
-            
-            <!-- Edit Form -->
-            <div id="edit-form-container" class="space-y-4">
-                <!-- Edit Duration -->
+            <form id="edit-request-form" class="space-y-4">
+                <input type="hidden" id="edit-request-id">
+                <input type="hidden" id="edit-request-type">
+
+                <!-- Duration -->
                 <div>
                     <label for="edit-duration-search" class="block text-sm font-medium text-gray-700 mb-1">រយៈពេល</label>
                     <div class="relative">
@@ -1966,30 +2289,42 @@
                         >
                         <div
                             id="edit-duration-dropdown"
-                            class="absolute z-20 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto hidden"
+                            class="absolute z-20 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto hidden custom-dropdown"
                         ></div>
                     </div>
                 </div>
 
-                <!-- Edit Single Date -->
+                <!-- Single Date -->
                 <div id="edit-single-date-container" class="hidden">
-                    <label for="edit-leave-date-single" class="block text-sm font-medium text-gray-700 mb-1">កាលបរិច្ឆេទ</label>
-                    <input type="date" id="edit-leave-date-single" class="w-full px-4 py-3 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                    <label for="edit-date-single" class="block text-sm font-medium text-gray-700 mb-1">កាលបរិច្ឆេទ</label>
+                    <input
+                        type="date"
+                        id="edit-date-single"
+                        class="w-full px-4 py-3 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    >
                 </div>
 
-                <!-- Edit Date Range -->
+                <!-- Date Range -->
                 <div id="edit-date-range-container" class="hidden space-y-4">
                     <div>
-                        <label for="edit-leave-date-start" class="block text-sm font-medium text-gray-700 mb-1">ចាប់ពីថ្ងៃ</label>
-                        <input type="date" id="edit-leave-date-start" class="w-full px-4 py-3 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                        <label for="edit-date-start" class="block text-sm font-medium text-gray-700 mb-1">ចាប់ពីថ្ងៃ</label>
+                        <input
+                            type="date"
+                            id="edit-date-start"
+                            class="w-full px-4 py-3 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        >
                     </div>
                     <div>
-                        <label for="edit-leave-date-end" class="block text-sm font-medium text-gray-700 mb-1">ដល់ថ្ងៃ</label>
-                        <input type="date" id="edit-leave-date-end" class="w-full px-4 py-3 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                        <label for="edit-date-end" class="block text-sm font-medium text-gray-700 mb-1">ដល់ថ្ងៃ</label>
+                        <input
+                            type="date"
+                            id="edit-date-end"
+                            class="w-full px-4 py-3 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        >
                     </div>
                 </div>
 
-                <!-- Edit Reason -->
+                <!-- Reason -->
                 <div>
                     <label for="edit-reason-search" class="block text-sm font-medium text-gray-700 mb-1">មូលហេតុ</Tlabel>
                     <div class="relative">
@@ -2002,46 +2337,36 @@
                         >
                         <div
                             id="edit-reason-dropdown"
-                            class="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto hidden"
+                            class="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto hidden custom-dropdown"
                         ></div>
                     </div>
                 </div>
                 
-                <!-- Error Message -->
-                <p id="edit-error" class="text-red-500 text-sm hidden"></p>
-                
+                <p id="edit-request-error" class="text-red-500 text-sm hidden"></p>
+
                 <!-- Action Buttons -->
                 <div class="flex items-center justify-end space-x-3 pt-4">
-                    <button id="edit-cancel-btn" class="bg-gray-200 text-gray-800 py-2 px-4 rounded-lg font-semibold hover:bg-gray-300 disabled:opacity-50">
+                    <button id="cancel-edit-btn" type="button" class="bg-gray-200 text-gray-800 py-2 px-4 rounded-lg font-semibold hover:bg-gray-300">
                         បោះបង់
                     </button>
-                    <button id="edit-save-btn" class="bg-blue-600 text-white py-2 px-4 rounded-lg font-semibold shadow-md hover:bg-blue-700 disabled:opacity-50">
-                        រក្សាទុកការកែសម្រួល
+                    <button id="save-edit-btn" type="button" class="bg-blue-600 text-white py-2 px-4 rounded-lg font-semibold shadow-md hover:bg-blue-700 disabled:opacity-50">
+                        រក្សាទុកការកែប្រែ
                     </button>
                 </div>
-            </div>
+            </form>
         </div>
     </div>
     
-    <!-- ===== DELETE CONFIRM MODAL ===== -->
-    <div id="delete-modal" class="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-70 hidden p-4">
-        <div class="bg-white p-6 rounded-lg shadow-xl w-full max-w-sm text-center">
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12 mx-auto text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-            </svg>
-            <h3 class="text-xl font-bold my-3">លុបសំណើ</h3>
-            <p class="text-gray-600 mb-6">តើអ្នកប្រាកដទេ ថាចង់លុបសំណើនេះ? សំណើដែលបានលុប មិនអាចយកមកវិញបានទេ។</p>
-            
-            <div id="delete-loading" class="flex items-center justify-center text-gray-600 hidden my-4">
-                <div class="spinner mr-2" style="width: 20px; height: 20px; border-width: 2px;"></div>
-                <span>កំពុងលុប...</span>
-            </div>
-            
-            <div class="flex items-center justify-center space-x-3">
-                <button id="delete-cancel-btn" class="flex-1 bg-gray-200 text-gray-800 py-2 px-4 rounded-lg font-semibold hover:bg-gray-300 disabled:opacity-50">
+    <!-- ===== Delete Confirm Modal ===== -->
+    <div id="delete-confirm-modal" class="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-70 p-6 hidden">
+        <div class="bg-white p-6 rounded-lg shadow-xl w-full max-w-sm">
+            <h3 class="text-xl font-bold mb-4">បញ្ជាក់ការលុប</h3>
+            <p id="delete-confirm-text" class="text-gray-600 mb-6">តើអ្នកប្រាកដទេ ថាចង់លុប?</p>
+            <div class="flex items-center justify-end space-x-3">
+                <button id="cancel-delete-btn" type="button" class="bg-gray-200 text-gray-800 py-2 px-4 rounded-lg font-semibold hover:bg-gray-300">
                     បោះបង់
                 </button>
-                <button id="delete-confirm-btn" class="flex-1 bg-red-600 text-white py-2 px-4 rounded-lg font-semibold shadow-md hover:bg-red-700 disabled:opacity-50" data-id="">
+                <button id="confirm-delete-btn" type="button" class="bg-red-600 text-white py-2 px-4 rounded-lg font-semibold shadow-md hover:bg-red-700 disabled:opacity-50">
                     យល់ព្រមលុប
                 </button>
             </div>
